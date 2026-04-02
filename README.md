@@ -66,6 +66,15 @@ agent = Agent(role="Solana Analyst", tools=ALL_TOOLS)
 
 The SDK uses the [x402 payment protocol](https://x402.org). When you call an endpoint, the library automatically handles the 402 → sign USDC → retry flow. Your wallet needs USDC on Solana mainnet.
 
+## Also Available
+
+| Platform | Package |
+|---|---|
+| TypeScript SDK | [`madeonsol-x402`](https://www.npmjs.com/package/madeonsol-x402) |
+| MCP Server (Claude, Cursor) | [`mcp-server-madeonsol`](https://www.npmjs.com/package/mcp-server-madeonsol) |
+| ElizaOS | [`@madeonsol/plugin-madeonsol`](https://www.npmjs.com/package/@madeonsol/plugin-madeonsol) |
+| Solana Agent Kit | [`solana-agent-kit-plugin-madeonsol`](https://www.npmjs.com/package/solana-agent-kit-plugin-madeonsol) |
+
 ## License
 
 MIT
