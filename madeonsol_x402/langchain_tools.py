@@ -9,7 +9,7 @@ from typing import Any
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from .client import MadeOnSolClient
+from .client import MadeOnSolClient, MadeOnSolREST
 
 
 def _client() -> MadeOnSolClient:
@@ -17,6 +17,13 @@ def _client() -> MadeOnSolClient:
     if not key:
         raise ValueError("Set SVM_PRIVATE_KEY env var for x402 payments")
     return MadeOnSolClient(key)
+
+
+def _rest_client() -> MadeOnSolREST:
+    key = os.environ.get("RAPIDAPI_KEY", "")
+    if not key:
+        raise ValueError("Set RAPIDAPI_KEY env var for webhook/streaming features")
+    return MadeOnSolREST(key)
 
 
 class KolFeedInput(BaseModel):
@@ -78,9 +85,59 @@ class MadeOnSolDeployerAlerts(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class CreateWebhookInput(BaseModel):
+    url: str = Field(description="HTTPS webhook URL to receive events")
+    events: str = Field(description="Comma-separated event types: kol:trade, deployer:alert, deployer:bond, kol:coordination")
+    min_sol: float | None = Field(default=None, description="Optional: minimum SOL amount filter")
+
+
+class MadeOnSolCreateWebhook(BaseTool):
+    name: str = "madeonsol_create_webhook"
+    description: str = "Register a webhook to receive real-time push notifications for KOL trades and deployer alerts. Requires RAPIDAPI_KEY."
+    args_schema: type[BaseModel] = CreateWebhookInput
+
+    def _run(self, url: str, events: str, min_sol: float | None = None) -> str:
+        filters = {}
+        if min_sol:
+            filters["min_sol"] = min_sol
+        data = _rest_client().create_webhook(url=url, events=events.split(","), filters=filters or None)
+        return json.dumps(data, indent=2)
+
+
+class ListWebhooksInput(BaseModel):
+    pass
+
+
+class MadeOnSolListWebhooks(BaseTool):
+    name: str = "madeonsol_list_webhooks"
+    description: str = "List all your registered MadeOnSol webhooks. Requires RAPIDAPI_KEY."
+    args_schema: type[BaseModel] = ListWebhooksInput
+
+    def _run(self) -> str:
+        data = _rest_client().list_webhooks()
+        return json.dumps(data, indent=2)
+
+
+class StreamTokenInput(BaseModel):
+    pass
+
+
+class MadeOnSolStreamToken(BaseTool):
+    name: str = "madeonsol_stream_token"
+    description: str = "Get a 24h WebSocket streaming token for real-time event streaming from MadeOnSol. Requires RAPIDAPI_KEY."
+    args_schema: type[BaseModel] = StreamTokenInput
+
+    def _run(self) -> str:
+        data = _rest_client().get_stream_token()
+        return json.dumps(data, indent=2)
+
+
 ALL_TOOLS = [
     MadeOnSolKolFeed(),
     MadeOnSolKolCoordination(),
     MadeOnSolKolLeaderboard(),
     MadeOnSolDeployerAlerts(),
+    MadeOnSolCreateWebhook(),
+    MadeOnSolListWebhooks(),
+    MadeOnSolStreamToken(),
 ]

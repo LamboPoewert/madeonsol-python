@@ -86,3 +86,69 @@ class MadeOnSolClient:
         resp = httpx.get(f"{self.base_url}/api/x402")
         resp.raise_for_status()
         return resp.json()
+
+
+class MadeOnSolREST:
+    """REST API client for webhook management and WebSocket streaming tokens.
+
+    Requires a RapidAPI Pro or Ultra subscription key.
+
+    Args:
+        api_key: RapidAPI API key.
+        base_url: API base URL (default: https://madeonsol.com).
+    """
+
+    def __init__(self, api_key: str, base_url: str = BASE_URL) -> None:
+        self.base_url = base_url.rstrip("/")
+        self._headers = {
+            "Content-Type": "application/json",
+            "x-rapidapi-key": api_key,
+            "x-rapidapi-host": "madeonsol-solana-kol-tracker-tools-api.p.rapidapi.com",
+        }
+
+    def _request(self, method: str, path: str, json_body: dict[str, Any] | None = None) -> dict[str, Any]:
+        resp = httpx.request(
+            method,
+            f"{self.base_url}/api/v1{path}",
+            headers=self._headers,
+            json=json_body,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def create_webhook(
+        self,
+        *,
+        url: str,
+        events: list[str],
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Register a webhook. Returns webhook with HMAC secret (shown once)."""
+        body: dict[str, Any] = {"url": url, "events": events}
+        if filters:
+            body["filters"] = filters
+        return self._request("POST", "/webhooks", body)
+
+    def list_webhooks(self) -> dict[str, Any]:
+        """List all your registered webhooks."""
+        return self._request("GET", "/webhooks")
+
+    def get_webhook(self, webhook_id: int) -> dict[str, Any]:
+        """Get webhook detail with recent delivery log."""
+        return self._request("GET", f"/webhooks/{webhook_id}")
+
+    def update_webhook(self, webhook_id: int, **kwargs: Any) -> dict[str, Any]:
+        """Update a webhook (url, events, filters, is_active)."""
+        return self._request("PATCH", f"/webhooks/{webhook_id}", kwargs)
+
+    def delete_webhook(self, webhook_id: int) -> dict[str, Any]:
+        """Delete a webhook permanently."""
+        return self._request("DELETE", f"/webhooks/{webhook_id}")
+
+    def test_webhook(self, webhook_id: int) -> dict[str, Any]:
+        """Send a test payload to verify a webhook URL."""
+        return self._request("POST", "/webhooks/test", {"webhook_id": webhook_id})
+
+    def get_stream_token(self) -> dict[str, Any]:
+        """Generate a 24h WebSocket streaming token."""
+        return self._request("POST", "/stream/token")
