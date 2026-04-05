@@ -1,4 +1,4 @@
-"""Core x402 client for MadeOnSol API."""
+"""MadeOnSol API client. Supports API key, RapidAPI, or x402 micropayments."""
 
 from __future__ import annotations
 
@@ -6,33 +6,81 @@ import asyncio
 from typing import Any
 
 import httpx
-from x402 import x402Client
-from x402.http.clients import x402HttpxClient
-from x402.mechanisms.svm import KeypairSigner
-from x402.mechanisms.svm.exact.register import register_exact_svm_client
 
 BASE_URL = "https://madeonsol.com"
+RAPIDAPI_HOST = "madeonsol-solana-kol-tracker-tools-api.p.rapidapi.com"
 
 
 class MadeOnSolClient:
-    """x402-enabled client for MadeOnSol Solana API.
+    """MadeOnSol Solana API client.
+
+    Auth priority: api_key > rapidapi_key > private_key (x402).
 
     Args:
-        private_key: Base58-encoded Solana private key for USDC payments.
+        api_key: MadeOnSol API key (get one free at madeonsol.com/developer). Preferred.
+        rapidapi_key: RapidAPI subscription key.
+        private_key: Base58-encoded Solana private key for x402 USDC micropayments (AI agents).
         base_url: API base URL (default: https://madeonsol.com).
     """
 
-    def __init__(self, private_key: str, base_url: str = BASE_URL) -> None:
+    def __init__(
+        self,
+        private_key: str | None = None,
+        base_url: str = BASE_URL,
+        *,
+        api_key: str | None = None,
+        rapidapi_key: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
-        self._x402 = x402Client()
-        signer = KeypairSigner.from_base58(private_key)
-        register_exact_svm_client(self._x402, signer)
+        self._auth_mode: str = "none"
+        self._auth_headers: dict[str, str] = {}
+        self._x402: Any = None
+
+        if api_key:
+            self._auth_mode = "madeonsol"
+            self._auth_headers = {"Authorization": f"Bearer {api_key}"}
+        elif rapidapi_key:
+            self._auth_mode = "rapidapi"
+            self._auth_headers = {
+                "x-rapidapi-key": rapidapi_key,
+                "x-rapidapi-host": RAPIDAPI_HOST,
+            }
+        elif private_key:
+            self._auth_mode = "x402"
+            from x402 import x402Client
+            from x402.mechanisms.svm import KeypairSigner
+            from x402.mechanisms.svm.exact.register import register_exact_svm_client
+            self._x402 = x402Client()
+            signer = KeypairSigner.from_base58(private_key)
+            register_exact_svm_client(self._x402, signer)
+        else:
+            raise ValueError(
+                "Provide api_key, rapidapi_key, or private_key. "
+                "Get a free API key at madeonsol.com/developer"
+            )
+
+    def _resolve_path(self, path: str) -> str:
+        if self._auth_mode in ("madeonsol", "rapidapi"):
+            return path.replace("/api/x402/", "/api/v1/")
+        return path
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        async with x402HttpxClient(self._x402) as http:
-            resp = await http.get(f"{self.base_url}{path}", params=params)
-            resp.raise_for_status()
-            return resp.json()
+        api_path = self._resolve_path(path)
+        if self._auth_mode == "x402":
+            from x402.http.clients import x402HttpxClient
+            async with x402HttpxClient(self._x402) as http:
+                resp = await http.get(f"{self.base_url}{api_path}", params=params)
+                resp.raise_for_status()
+                return resp.json()
+        else:
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(
+                    f"{self.base_url}{api_path}",
+                    params=params,
+                    headers=self._auth_headers,
+                )
+                resp.raise_for_status()
+                return resp.json()
 
     def _get_sync(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
@@ -50,7 +98,7 @@ class MadeOnSolClient:
     def kol_feed(
         self, *, limit: int = 50, action: str | None = None, kol: str | None = None
     ) -> dict[str, Any]:
-        """Real-time KOL trade feed from 946+ wallets. $0.005/req."""
+        """Real-time KOL trade feed from 946+ wallets."""
         params: dict[str, Any] = {"limit": limit}
         if action:
             params["action"] = action
@@ -61,13 +109,13 @@ class MadeOnSolClient:
     def kol_coordination(
         self, *, period: str = "24h", min_kols: int = 3, limit: int = 20
     ) -> dict[str, Any]:
-        """KOL convergence signals. $0.02/req."""
+        """KOL convergence signals."""
         return self._get_sync("/api/x402/kol/coordination", {
             "period": period, "min_kols": min_kols, "limit": limit,
         })
 
     def kol_leaderboard(self, *, period: str = "7d", limit: int = 20) -> dict[str, Any]:
-        """KOL PnL/win-rate rankings. $0.005/req."""
+        """KOL PnL/win-rate rankings."""
         return self._get_sync("/api/x402/kol/leaderboard", {
             "period": period, "limit": limit,
         })
@@ -75,7 +123,7 @@ class MadeOnSolClient:
     def deployer_alerts(
         self, *, limit: int = 20, since: str | None = None, offset: int = 0
     ) -> dict[str, Any]:
-        """Elite Pump.fun deployer alerts. $0.01/req."""
+        """Elite Pump.fun deployer alerts."""
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if since:
             params["since"] = since
@@ -91,20 +139,43 @@ class MadeOnSolClient:
 class MadeOnSolREST:
     """REST API client for webhook management and WebSocket streaming tokens.
 
-    Requires a RapidAPI Pro or Ultra subscription key.
-
     Args:
-        api_key: RapidAPI API key.
+        api_key: MadeOnSol API key (preferred) or RapidAPI key.
+        rapidapi_key: RapidAPI subscription key (alternative).
         base_url: API base URL (default: https://madeonsol.com).
     """
 
-    def __init__(self, api_key: str, base_url: str = BASE_URL) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str = BASE_URL,
+        *,
+        rapidapi_key: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
-        self._headers = {
-            "Content-Type": "application/json",
-            "x-rapidapi-key": api_key,
-            "x-rapidapi-host": "madeonsol-solana-kol-tracker-tools-api.p.rapidapi.com",
-        }
+        if api_key and api_key.startswith("msk_"):
+            self._headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            }
+        elif api_key:
+            # Legacy: treat non-msk_ key as RapidAPI key for backwards compat
+            self._headers = {
+                "Content-Type": "application/json",
+                "x-rapidapi-key": api_key,
+                "x-rapidapi-host": RAPIDAPI_HOST,
+            }
+        elif rapidapi_key:
+            self._headers = {
+                "Content-Type": "application/json",
+                "x-rapidapi-key": rapidapi_key,
+                "x-rapidapi-host": RAPIDAPI_HOST,
+            }
+        else:
+            raise ValueError(
+                "Provide api_key or rapidapi_key. "
+                "Get a free API key at madeonsol.com/developer"
+            )
 
     def _request(self, method: str, path: str, json_body: dict[str, Any] | None = None) -> dict[str, Any]:
         resp = httpx.request(

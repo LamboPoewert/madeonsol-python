@@ -1,4 +1,4 @@
-"""MadeOnSol x402 SDK — Solana KOL intelligence via USDC micropayments."""
+"""MadeOnSol SDK — Solana KOL intelligence. Supports API key, RapidAPI, or x402 micropayments."""
 
 from .client import MadeOnSolClient, MadeOnSolREST
 

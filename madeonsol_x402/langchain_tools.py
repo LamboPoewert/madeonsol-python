@@ -1,4 +1,4 @@
-"""LangChain tools for MadeOnSol x402 API. Install: pip install madeonsol-x402[langchain]"""
+"""LangChain tools for MadeOnSol API. Install: pip install madeonsol-x402[langchain]"""
 
 from __future__ import annotations
 
@@ -13,17 +13,32 @@ from .client import MadeOnSolClient, MadeOnSolREST
 
 
 def _client() -> MadeOnSolClient:
-    key = os.environ.get("SVM_PRIVATE_KEY", "")
-    if not key:
-        raise ValueError("Set SVM_PRIVATE_KEY env var for x402 payments")
-    return MadeOnSolClient(key)
+    """Create client using env vars. Priority: MADEONSOL_API_KEY > RAPIDAPI_KEY > SVM_PRIVATE_KEY."""
+    api_key = os.environ.get("MADEONSOL_API_KEY", "")
+    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
+    private_key = os.environ.get("SVM_PRIVATE_KEY", "")
+    if api_key:
+        return MadeOnSolClient(api_key=api_key)
+    if rapidapi_key:
+        return MadeOnSolClient(rapidapi_key=rapidapi_key)
+    if private_key:
+        return MadeOnSolClient(private_key=private_key)
+    raise ValueError(
+        "Set MADEONSOL_API_KEY (free at madeonsol.com/developer), RAPIDAPI_KEY, or SVM_PRIVATE_KEY"
+    )
 
 
 def _rest_client() -> MadeOnSolREST:
-    key = os.environ.get("RAPIDAPI_KEY", "")
-    if not key:
-        raise ValueError("Set RAPIDAPI_KEY env var for webhook/streaming features")
-    return MadeOnSolREST(key)
+    """Create REST client for webhooks/streaming. Priority: MADEONSOL_API_KEY > RAPIDAPI_KEY."""
+    api_key = os.environ.get("MADEONSOL_API_KEY", "")
+    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
+    if api_key:
+        return MadeOnSolREST(api_key=api_key)
+    if rapidapi_key:
+        return MadeOnSolREST(rapidapi_key=rapidapi_key)
+    raise ValueError(
+        "Set MADEONSOL_API_KEY (free at madeonsol.com/developer) or RAPIDAPI_KEY for webhook/streaming features"
+    )
 
 
 class KolFeedInput(BaseModel):
