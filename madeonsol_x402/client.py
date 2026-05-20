@@ -1,4 +1,4 @@
-"""MadeOnSol API client. Supports API key, RapidAPI, or x402 micropayments."""
+"""MadeOnSol API client. Supports MadeOnSol API key (msk_) or x402 micropayments."""
 
 from __future__ import annotations
 
@@ -8,17 +8,15 @@ from typing import Any
 import httpx
 
 BASE_URL = "https://madeonsol.com"
-RAPIDAPI_HOST = "madeonsol-solana-kol-tracker-tools-api.p.rapidapi.com"
 
 
 class MadeOnSolClient:
     """MadeOnSol Solana API client.
 
-    Auth priority: api_key > rapidapi_key > private_key (x402).
+    Auth priority: api_key > private_key (x402).
 
     Args:
-        api_key: MadeOnSol API key (get one free at madeonsol.com/developer). Preferred.
-        rapidapi_key: RapidAPI subscription key.
+        api_key: MadeOnSol API key — get one free at https://madeonsol.com/pricing. Preferred.
         private_key: Base58-encoded Solana private key for x402 USDC micropayments (AI agents).
         base_url: API base URL (default: https://madeonsol.com).
     """
@@ -29,22 +27,17 @@ class MadeOnSolClient:
         base_url: str = BASE_URL,
         *,
         api_key: str | None = None,
-        rapidapi_key: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self._auth_mode: str = "none"
         self._auth_headers: dict[str, str] = {}
         self._x402: Any = None
+        self._api_key = api_key
+        self._rest_client: "MadeOnSolREST | None" = None
 
         if api_key:
             self._auth_mode = "madeonsol"
             self._auth_headers = {"Authorization": f"Bearer {api_key}"}
-        elif rapidapi_key:
-            self._auth_mode = "rapidapi"
-            self._auth_headers = {
-                "x-rapidapi-key": rapidapi_key,
-                "x-rapidapi-host": RAPIDAPI_HOST,
-            }
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -54,13 +47,36 @@ class MadeOnSolClient:
             signer = KeypairSigner.from_base58(private_key)
             register_exact_svm_client(self._x402, signer)
         else:
+            import sys
+            sys.stderr.write(
+                "\n[madeonsol-x402] Missing api_key or private_key.\n"
+                "  → Get a free API key (200 req/day, no card) at https://madeonsol.com/pricing\n"
+                "  → Then: MadeOnSolClient(api_key=os.environ['MADEONSOL_API_KEY'])\n\n"
+            )
             raise ValueError(
-                "Provide api_key, rapidapi_key, or private_key. "
-                "Get a free API key at madeonsol.com/developer"
+                "Provide api_key or private_key. "
+                "Get a free API key at https://madeonsol.com/pricing"
             )
 
+    @property
+    def rest(self) -> "MadeOnSolREST":
+        """REST client for webhook management, streaming tokens, alpha intelligence,
+        token quality, copy-trade rules, and wallet tracker.
+
+        Lazily constructed from the same credentials as the parent client.
+        Requires `api_key` (x402 mode is not supported for REST endpoints).
+        """
+        if self._rest_client is None:
+            if self._api_key:
+                self._rest_client = MadeOnSolREST(api_key=self._api_key, base_url=self.base_url)
+            else:
+                raise RuntimeError(
+                    ".rest requires api_key — x402 mode does not support REST endpoints"
+                )
+        return self._rest_client
+
     def _resolve_path(self, path: str) -> str:
-        if self._auth_mode in ("madeonsol", "rapidapi"):
+        if self._auth_mode == "madeonsol":
             return path.replace("/api/x402/", "/api/v1/")
         return path
 
@@ -96,38 +112,329 @@ class MadeOnSolClient:
     # ── Endpoints ──
 
     def kol_feed(
-        self, *, limit: int = 50, action: str | None = None, kol: str | None = None
+        self,
+        *,
+        limit: int = 50,
+        before: str | None = None,
+        action: str | None = None,
+        kol: str | None = None,
+        min_sol: float | None = None,
+        token_age_max_min: int | None = None,
+        exclude_sells: bool | None = None,
+        min_kol_winrate: float | None = None,
+        strategy: str | None = None,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
     ) -> dict[str, Any]:
-        """Real-time KOL trade feed from 946+ wallets."""
+        """Real-time KOL trade feed from 1,000+ wallets.
+
+        Args:
+            limit: Max trades to return.
+            before: Cursor — ISO 8601 timestamp; returns trades strictly older
+                than this. Pass ``next_before`` from the previous response for
+                incremental polling.
+            action: Filter by 'buy' or 'sell'.
+            kol: Filter by KOL handle/name.
+            min_sol: PRO+ — minimum SOL size per trade.
+            token_age_max_min: PRO+ — max token age in minutes at trade time.
+            exclude_sells: PRO+ — drop sell-side trades.
+            min_kol_winrate: PRO+ — minimum 7d winrate of the KOL (0-100).
+            strategy: PRO+ — 'scalper', 'day_trader', 'swing_trader', 'hodler', or 'mixed'.
+            min_mc_usd: v1.6 — lower bound on market_cap_usd_at_trade. Drops
+                trades with unknown MC when set.
+            max_mc_usd: v1.6 — upper bound on market_cap_usd_at_trade.
+        """
         params: dict[str, Any] = {"limit": limit}
+        if before:
+            params["before"] = before
         if action:
             params["action"] = action
         if kol:
             params["kol"] = kol
+        if min_sol is not None:
+            params["min_sol"] = min_sol
+        if token_age_max_min is not None:
+            params["token_age_max_min"] = token_age_max_min
+        if exclude_sells:
+            params["exclude_sells"] = "true"
+        if min_kol_winrate is not None:
+            params["min_kol_winrate"] = min_kol_winrate
+        if strategy:
+            params["strategy"] = strategy
+        if min_mc_usd is not None:
+            params["min_mc_usd"] = min_mc_usd
+        if max_mc_usd is not None:
+            params["max_mc_usd"] = max_mc_usd
         return self._get_sync("/api/x402/kol/feed", params)
 
     def kol_coordination(
-        self, *, period: str = "24h", min_kols: int = 3, limit: int = 20
+        self,
+        *,
+        period: str = "24h",
+        min_kols: int = 3,
+        limit: int = 20,
+        min_avg_winrate: float | None = None,
+        unique_strategies: int | None = None,
+        include_majors: bool | None = None,
+        window_minutes: int | None = None,
+        min_score: int | None = None,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
     ) -> dict[str, Any]:
-        """KOL convergence signals."""
-        return self._get_sync("/api/x402/kol/coordination", {
-            "period": period, "min_kols": min_kols, "limit": limit,
-        })
+        """KOL convergence signals (v1.1 — peak-density + score).
 
-    def kol_leaderboard(self, *, period: str = "7d", limit: int = 20) -> dict[str, Any]:
-        """KOL PnL/win-rate rankings."""
-        return self._get_sync("/api/x402/kol/leaderboard", {
-            "period": period, "limit": limit,
-        })
+        Args:
+            period: '1h', '6h', '24h', or '7d'.
+            min_kols: Minimum KOLs in a cluster.
+            limit: Max clusters to return.
+            min_avg_winrate: PRO+ — require cluster avg winrate_7d >= N (0-100).
+            unique_strategies: PRO+ — require cluster to span >= N strategies.
+            include_majors: v1.1 — include WIF/BONK/POPCAT etc. Default False.
+            window_minutes: v1.1 — peak-density window size (1-60). Default 15.
+            min_score: v1.1 — minimum composite coordination score (0-100).
+
+        Response (v1.1): each token includes peak_window_start/end, peak_kols,
+        peak_buys, exited_count, holders_count, coordination_score, and per-KOL
+        buy_sol/sell_sol/exited (PRO+).
+        """
+        params: dict[str, Any] = {"period": period, "min_kols": min_kols, "limit": limit}
+        if min_avg_winrate is not None:
+            params["min_avg_winrate"] = min_avg_winrate
+        if unique_strategies is not None:
+            params["unique_strategies"] = unique_strategies
+        if include_majors is not None:
+            params["include_majors"] = "true" if include_majors else "false"
+        if window_minutes is not None:
+            params["window_minutes"] = window_minutes
+        if min_score is not None:
+            params["min_score"] = min_score
+        if min_mc_usd is not None:
+            params["min_mc_usd"] = min_mc_usd
+        if max_mc_usd is not None:
+            params["max_mc_usd"] = max_mc_usd
+        return self._get_sync("/api/x402/kol/coordination", params)
+
+    def kol_leaderboard(
+        self,
+        *,
+        period: str = "7d",
+        limit: int = 20,
+        sort: str | None = None,
+        strategy: str | None = None,
+        min_winrate: float | None = None,
+    ) -> dict[str, Any]:
+        """KOL PnL/win-rate rankings.
+
+        Args:
+            period: One of 'today', '7d', '30d', '90d', '180d'. Trade history is
+                retained for 180 days; long windows fill up over time.
+            limit: Max KOLs to return.
+            sort: PRO+ — 'pnl' (default), 'winrate', 'profit_factor', 'roi', or 'early_entry'.
+            strategy: PRO+ — filter by 'sniper', 'flipper', 'swinger', 'holder', 'mixed'.
+            min_winrate: PRO+ — minimum winrate cutoff (0-100).
+        """
+        params: dict[str, Any] = {"period": period, "limit": limit}
+        if sort:
+            params["sort"] = sort
+        if strategy:
+            params["strategy"] = strategy
+        if min_winrate is not None:
+            params["min_winrate"] = min_winrate
+        return self._get_sync("/api/x402/kol/leaderboard", params)
 
     def deployer_alerts(
-        self, *, limit: int = 20, since: str | None = None, offset: int = 0
+        self,
+        *,
+        limit: int = 20,
+        since: str | None = None,
+        before: str | None = None,
+        offset: int = 0,
+        tier: str | None = None,
+        alert_type: str | None = None,
+        priority: str | None = None,
+        min_kol_buys: int | None = None,
     ) -> dict[str, Any]:
-        """Elite Pump.fun deployer alerts."""
+        """Pump.fun deployer alerts with KOL buy enrichment.
+
+        Args:
+            limit: Max alerts to return.
+            since: Optional ISO8601 timestamp — only alerts created after this.
+            before: Cursor — ISO 8601 timestamp; returns alerts strictly older
+                than this. Preferred over ``offset`` at scale.
+            offset: Legacy pagination offset (prefer ``before``).
+            tier: Filter by deployer tier ('elite', 'good', 'moderate', 'rising',
+                'cold'). **PRO/ULTRA subscribers only** — BASIC callers passing
+                this receive HTTP 403.
+            alert_type: Filter by alert_type (e.g. 'new_deploy', 'bonded').
+            priority: Filter by 'high', 'medium', or 'low'.
+            min_kol_buys: Only alerts where at least N KOLs bought the token.
+        """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if since:
             params["since"] = since
+        if before:
+            params["before"] = before
+        if tier:
+            params["tier"] = tier
+        if alert_type:
+            params["alert_type"] = alert_type
+        if priority:
+            params["priority"] = priority
+        if min_kol_buys is not None:
+            params["min_kol_buys"] = min_kol_buys
         return self._get_sync("/api/x402/deployer-hunter/alerts", params)
+
+    def kol_pairs(
+        self, *, period: str = "7d", min_shared: int = 3, limit: int = 20
+    ) -> dict[str, Any]:
+        """KOL affinity matrix — which KOLs co-trade the same tokens."""
+        return self._get_sync("/api/x402/kol/pairs", {
+            "period": period, "min_shared": min_shared, "limit": limit,
+        })
+
+    def kol_hot_tokens(
+        self,
+        *,
+        period: str = "6h",
+        min_kols: int = 1,
+        limit: int = 20,
+        min_avg_winrate: float | None = None,
+        unique_strategies: int | None = None,
+    ) -> dict[str, Any]:
+        """KOL momentum tokens — accelerating KOL buy interest.
+
+        Args:
+            period: '1h' or '6h'.
+            min_kols: Minimum distinct KOL buyers.
+            limit: Max tokens to return.
+            min_avg_winrate: PRO+ — require avg winrate_7d of buyers >= N (0-100).
+            unique_strategies: PRO+ — require >= N distinct strategies among buyers.
+        """
+        params: dict[str, Any] = {"period": period, "min_kols": min_kols, "limit": limit}
+        if min_avg_winrate is not None:
+            params["min_avg_winrate"] = min_avg_winrate
+        if unique_strategies is not None:
+            params["unique_strategies"] = unique_strategies
+        return self._get_sync("/api/x402/kol/tokens/hot", params)
+
+    def kol_trending_tokens(
+        self, *, period: str = "1h", min_kols: int = 1, limit: int = 20
+    ) -> dict[str, Any]:
+        """Tokens ranked by KOL buy volume. Sub-hour periods require PRO/ULTRA."""
+        return self._get_sync("/api/x402/kol/tokens/trending", {
+            "period": period, "min_kols": min_kols, "limit": limit,
+        })
+
+    def kol_token_entry_order(
+        self, mint: str, *, limit: int = 50
+    ) -> dict[str, Any]:
+        """Ranked KOL first-buyers for a token.
+
+        Returns each KOL's first buy ordered by traded_at, with seconds_after_first
+        relative to the first KOL entry. PRO+ adds percentile_pnl_7d per entry.
+        """
+        return self._get_sync(
+            f"/api/x402/kol/tokens/{mint}/entry-order", {"limit": limit}
+        )
+
+    def kol_compare_wallets(self, wallets: list[str]) -> dict[str, Any]:
+        """Side-by-side comparison of 2-5 KOL wallets.
+
+        Args:
+            wallets: 2-5 wallet addresses. BASIC=2, PRO=4, ULTRA=5.
+        PRO+ adds an `overlap` list of tokens bought by 2+ of the wallets in 30d.
+        """
+        return self._get_sync("/api/x402/kol/compare", {"wallets": ",".join(wallets)})
+
+    def kol_alerts_recent(
+        self,
+        *,
+        window: str = "15m",
+        types: list[str] | None = None,
+        min_severity: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Live KOL alert feed.
+
+        Args:
+            window: '5m', '15m', '1h', '6h', or '24h'. Default '15m'.
+            types: Subset of 'consensus_cluster', 'fresh_token_kol_buy', 'heating_up'.
+            min_severity: 'low', 'medium', or 'high'.
+            limit: Max alerts to return.
+        """
+        params: dict[str, Any] = {"window": window, "limit": limit}
+        if types:
+            params["types"] = ",".join(types)
+        if min_severity:
+            params["min_severity"] = min_severity
+        return self._get_sync("/api/x402/kol/alerts/recent", params)
+
+    def wallet_stats(self, address: str) -> dict[str, Any]:
+        """Universal wallet stats over 90d for any Solana wallet plus cross-product flags
+        (is_kol + kol_name, is_alpha_tracked + bot_confidence + win_rate + net_pnl,
+        is_deployer + tokens_deployed). Works on any wallet, not just curated KOLs.
+        **x402: $0.005**.
+
+        Args:
+            address: Base58 wallet address (32-44 chars).
+        """
+        return self._get_sync(f"/api/x402/wallet/{address}")
+
+    def wallet_pnl(self, address: str) -> dict[str, Any]:
+        """Full FIFO cost-basis PnL: realized + unrealized SOL, profit factor, max
+        drawdown, hold-time stats, daily UTC PnL curve, closed positions sorted
+        by pnl desc, open positions with live unrealized P&L from the market-cap
+        tracker. Cached server-side — cache hits return immediately. **x402: $0.02**.
+
+        Args:
+            address: Base58 wallet address.
+        """
+        return self._get_sync(f"/api/x402/wallet/{address}/pnl")
+
+    def wallet_positions(self, address: str) -> dict[str, Any]:
+        """Open positions only — lighter slice of `wallet_pnl`. Shares the same cache.
+        **x402: $0.01**.
+
+        Args:
+            address: Base58 wallet address.
+        """
+        return self._get_sync(f"/api/x402/wallet/{address}/positions")
+
+    def wallet_trades(
+        self,
+        address: str,
+        *,
+        limit: int = 100,
+        cursor: str | None = None,
+        action: str | None = None,
+        token_mint: str | None = None,
+        since: int | None = None,
+        until: int | None = None,
+    ) -> dict[str, Any]:
+        """Cursor-paginated raw trades for any wallet (last 90 days by default).
+        **x402: $0.005** per page.
+
+        Args:
+            address: Base58 wallet address.
+            limit: 1-500, default 100.
+            cursor: From `next_cursor` of a previous response.
+            action: 'buy' or 'sell' filter.
+            token_mint: Filter to a single token.
+            since: Unix epoch seconds (default now-90d).
+            until: Unix epoch seconds (default now).
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        if action is not None:
+            params["action"] = action
+        if token_mint is not None:
+            params["token_mint"] = token_mint
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        return self._get_sync(f"/api/x402/wallet/{address}/trades", params)
 
     def discovery(self) -> dict[str, Any]:
         """Free — list all endpoints and prices."""
@@ -137,55 +444,78 @@ class MadeOnSolClient:
 
 
 class MadeOnSolREST:
-    """REST API client for webhook management and WebSocket streaming tokens.
+    """REST API client for the full v1 surface — webhooks, streaming, alpha
+    intelligence, token quality, copy-trade rules, wallet tracker.
 
     Args:
-        api_key: MadeOnSol API key (preferred) or RapidAPI key.
-        rapidapi_key: RapidAPI subscription key (alternative).
+        api_key: MadeOnSol API key (msk_...). Required.
         base_url: API base URL (default: https://madeonsol.com).
+
+    The most recent response's rate-limit headers are exposed via `last_rate_limit`:
+        {'limit': int|None, 'remaining': int|None, 'reset': int|None, 'request_id': str|None}
     """
 
     def __init__(
         self,
         api_key: str | None = None,
         base_url: str = BASE_URL,
-        *,
-        rapidapi_key: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        if api_key and api_key.startswith("msk_"):
-            self._headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            }
-        elif api_key:
-            # Legacy: treat non-msk_ key as RapidAPI key for backwards compat
-            self._headers = {
-                "Content-Type": "application/json",
-                "x-rapidapi-key": api_key,
-                "x-rapidapi-host": RAPIDAPI_HOST,
-            }
-        elif rapidapi_key:
-            self._headers = {
-                "Content-Type": "application/json",
-                "x-rapidapi-key": rapidapi_key,
-                "x-rapidapi-host": RAPIDAPI_HOST,
-            }
-        else:
-            raise ValueError(
-                "Provide api_key or rapidapi_key. "
-                "Get a free API key at madeonsol.com/developer"
+        if not api_key:
+            import sys
+            sys.stderr.write(
+                "\n[madeonsol-x402] MadeOnSolREST: missing api_key.\n"
+                "  → Get a free key (200 req/day, no card) at https://madeonsol.com/pricing\n\n"
             )
+            raise ValueError(
+                "Provide api_key. Get a free API key at https://madeonsol.com/pricing"
+            )
+        if not api_key.startswith("msk_"):
+            raise ValueError(
+                "api_key must start with 'msk_'. Get one at https://madeonsol.com/pricing"
+            )
+        self._headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+        self.last_rate_limit: dict[str, Any] = {
+            "limit": None, "remaining": None, "reset": None, "request_id": None,
+        }
 
-    def _request(self, method: str, path: str, json_body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _capture_rate_limit(self, resp: httpx.Response) -> None:
+        def _to_int(v: str | None) -> int | None:
+            if v is None:
+                return None
+            try:
+                return int(v)
+            except (ValueError, TypeError):
+                return None
+        self.last_rate_limit = {
+            "limit":      _to_int(resp.headers.get("x-ratelimit-limit")),
+            "remaining":  _to_int(resp.headers.get("x-ratelimit-remaining")),
+            "reset":      _to_int(resp.headers.get("x-ratelimit-reset")),
+            "request_id": resp.headers.get("x-request-id"),
+        }
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         resp = httpx.request(
             method,
             f"{self.base_url}/api/v1{path}",
             headers=self._headers,
             json=json_body,
+            params=params,
         )
+        self._capture_rate_limit(resp)
         resp.raise_for_status()
         return resp.json()
+
+    # ── Webhooks ──
 
     def create_webhook(
         self,
@@ -220,6 +550,548 @@ class MadeOnSolREST:
         """Send a test payload to verify a webhook URL."""
         return self._request("POST", "/webhooks/test", {"webhook_id": webhook_id})
 
+    # ── KOL/deployer detail ──
+
+    def kol_pnl(self, wallet: str, *, period: str = "30d") -> dict[str, Any]:
+        """Deep per-wallet PnL: equity curve, risk metrics, positions."""
+        return self._request("GET", f"/kol/{wallet}/pnl", params={"period": period})
+
+    def kol_timing(self, wallet: str, *, period: str = "30d") -> dict[str, Any]:
+        """KOL entry/exit timing profile — hold duration, exit speed, patterns."""
+        return self._request("GET", f"/kol/{wallet}/timing", params={"period": period})
+
+    def deployer_trajectory(self, wallet: str) -> dict[str, Any]:
+        """Deployer skill curve — streaks, rolling bond rate, trend."""
+        return self._request("GET", f"/deployer-hunter/{wallet}/trajectory")
+
+    # ── Streaming ──
+
     def get_stream_token(self) -> dict[str, Any]:
         """Generate a 24h WebSocket streaming token."""
         return self._request("POST", "/stream/token")
+
+    # ── Account (v1.7) ──
+
+    def me(self) -> dict[str, Any]:
+        """Inspect your account: tier, daily/burst quota state, subscription
+        expiry, and per-feature usage. Use ``quota['daily']['remaining']`` for
+        self-throttling without parsing rate-limit headers.
+        """
+        return self._request("GET", "/me")
+
+    # ── Token directory (v1.7, PRO+) ──
+
+    def tokens_list(
+        self,
+        *,
+        min_mc: float | None = None,
+        max_mc: float | None = None,
+        min_liq: float | None = None,
+        active_h: float | None = None,
+        primary_dex: str | None = None,
+        authority_revoked: bool | None = None,
+        exclude_token2022: bool | None = None,
+        min_lp_burnt_pct: float | None = None,
+        min_volume_1h_usd: float | None = None,
+        max_mev_share_pct: float | None = None,
+        mc_change_1h_min_pct: float | None = None,
+        mc_change_1h_max_pct: float | None = None,
+        sort: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict[str, Any]:
+        """Filtered, sortable token directory (PRO+).
+
+        Default ``min_liq=2000`` skips phantom-MC dust (low-liq pools with absurd
+        VWAP × supply products). Pass ``min_liq=0`` to opt out. Computed filters
+        (``min_volume_1h_usd``, ``max_mev_share_pct``, ``mc_change_1h_min_pct``,
+        ``mc_change_1h_max_pct``) over-fetch 3× and post-filter in client —
+        ``pagination['post_filtered']`` will be ``True`` and page size may be
+        smaller than ``limit``.
+
+        Sort values: ``mc_desc`` | ``mc_asc`` | ``last_trade_desc`` |
+        ``liquidity_desc`` | ``cumulative_volume_desc``.
+
+        Primary DEX values: ``pumpfun`` | ``pumpswap`` | ``raydium`` |
+        ``meteora`` | ``orca`` | ``raydium_clmm``.
+        """
+        params: dict[str, Any] = {}
+        for key, val in {
+            "min_mc": min_mc,
+            "max_mc": max_mc,
+            "min_liq": min_liq,
+            "active_h": active_h,
+            "primary_dex": primary_dex,
+            "authority_revoked": authority_revoked,
+            "exclude_token2022": exclude_token2022,
+            "min_lp_burnt_pct": min_lp_burnt_pct,
+            "min_volume_1h_usd": min_volume_1h_usd,
+            "max_mev_share_pct": max_mev_share_pct,
+            "mc_change_1h_min_pct": mc_change_1h_min_pct,
+            "mc_change_1h_max_pct": mc_change_1h_max_pct,
+            "sort": sort,
+            "limit": limit,
+            "offset": offset,
+        }.items():
+            if val is None:
+                continue
+            params[key] = "true" if val is True else "false" if val is False else val
+        return self._request("GET", "/tokens", params=params)
+
+    # ── Alpha Wallet Intelligence ──
+
+    def alpha_leaderboard(
+        self,
+        *,
+        period: str = "30d",
+        min_tokens: int = 5,
+        sort: str = "win_rate",
+        exclude_bots: bool = True,
+    ) -> dict[str, Any]:
+        """Top statistically profitable early-buyer wallets.
+
+        Args:
+            period: '7d', '30d', or 'all'.
+            min_tokens: 1–20 — minimum tokens traded by the wallet.
+            sort: 'win_rate', 'pnl', or 'roi'.
+            exclude_bots: Exclude wallets flagged as bots.
+
+        BASIC: 25 results, truncated wallets, rounded values.
+        PRO: 100 results, full wallets + extended stats.
+        ULTRA: 500 results + bot_confidence + behavioral signals.
+        """
+        return self._request("GET", "/alpha/leaderboard", params={
+            "period": period,
+            "min_tokens": min_tokens,
+            "sort": sort,
+            "exclude_bots": "true" if exclude_bots else "false",
+        })
+
+    def alpha_wallet(self, wallet: str) -> dict[str, Any]:
+        """Full alpha profile for one wallet — per-token breakdown + bot signals.
+
+        ULTRA only.
+        """
+        return self._request("GET", f"/alpha/{wallet}")
+
+    def alpha_linked(self, wallet: str) -> dict[str, Any]:
+        """Wallets behaviorally linked to this one (co-bought 3+ tokens within 2s).
+
+        ULTRA only.
+        """
+        return self._request("GET", f"/alpha/{wallet}/linked")
+
+    # ── Token Quality ──
+
+    def token_cap_table(self, mint: str) -> dict[str, Any]:
+        """First non-deployer early buyers for a token, enriched with PnL/KOL/bot flags.
+
+        BASIC: 403. PRO: top 10, truncated wallets. ULTRA: top 20, full wallets.
+        """
+        return self._request("GET", f"/tokens/{mint}/cap-table")
+
+    def token_buyer_quality(self, mint: str) -> dict[str, Any]:
+        """0–100 buyer-quality score for a token's first-buyer cohort.
+
+        BASIC: score + signal only. PRO/ULTRA: full breakdown.
+        Cached for 5 minutes per mint.
+        """
+        return self._request("GET", f"/tokens/{mint}/buyer-quality")
+
+    # ── Copy-Trade (PRO/ULTRA) ──
+
+    def copy_trade_list(self) -> dict[str, Any]:
+        """List your copy-trade rules."""
+        return self._request("GET", "/copytrade/subscriptions")
+
+    def copy_trade_create(
+        self,
+        *,
+        source_wallets: list[str],
+        sizing_amount: float,
+        name: str | None = None,
+        min_trade_sol: float | None = None,
+        only_action: str | None = None,
+        sizing_mode: str | None = None,
+        delivery_mode: str | None = None,
+        webhook_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a copy-trade rule. Returns webhook_secret ONCE — store it.
+
+        Args:
+            source_wallets: Wallets to follow. PRO=5/rule, ULTRA=50/rule.
+            sizing_amount: Amount used by the chosen sizing_mode.
+            name: Optional human label.
+            min_trade_sol: Minimum source-wallet trade size to fire a signal.
+            only_action: 'buy', 'sell', or 'both' (default 'both').
+            sizing_mode: 'fixed', 'proportional', or 'percent_source'.
+            delivery_mode: 'webhook', 'websocket', or 'both'.
+            webhook_url: Required when delivery_mode includes 'webhook'.
+        """
+        body: dict[str, Any] = {
+            "source_wallets": source_wallets,
+            "sizing_amount": sizing_amount,
+        }
+        if name is not None: body["name"] = name
+        if min_trade_sol is not None: body["min_trade_sol"] = min_trade_sol
+        if only_action is not None: body["only_action"] = only_action
+        if sizing_mode is not None: body["sizing_mode"] = sizing_mode
+        if delivery_mode is not None: body["delivery_mode"] = delivery_mode
+        if webhook_url is not None: body["webhook_url"] = webhook_url
+        return self._request("POST", "/copytrade/subscriptions", body)
+
+    def copy_trade_get(self, subscription_id: int) -> dict[str, Any]:
+        """Get one copy-trade rule by id."""
+        return self._request("GET", f"/copytrade/subscriptions/{subscription_id}")
+
+    def copy_trade_update(self, subscription_id: int, **kwargs: Any) -> dict[str, Any]:
+        """Update a copy-trade rule.
+
+        Accepts: name, source_wallets, min_trade_sol, only_action, sizing_mode,
+        sizing_amount, delivery_mode, webhook_url, is_active.
+        """
+        return self._request("PATCH", f"/copytrade/subscriptions/{subscription_id}", kwargs)
+
+    def copy_trade_delete(self, subscription_id: int) -> dict[str, Any]:
+        """Delete a copy-trade rule permanently."""
+        return self._request("DELETE", f"/copytrade/subscriptions/{subscription_id}")
+
+    def copy_trade_signals(
+        self,
+        *,
+        subscription_id: int | None = None,
+        since: str | None = None,
+        limit: int = 50,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
+    ) -> dict[str, Any]:
+        """Recent fired copy-trade signals (up to 7 days).
+
+        Args:
+            subscription_id: Filter to one rule.
+            since: ISO8601 timestamp — only signals fired at-or-after this time.
+            limit: 1–500. Default 50.
+            min_mc_usd: v1.6 — lower bound on MC at the source trade.
+            max_mc_usd: v1.6 — upper bound on MC at the source trade.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if subscription_id is not None:
+            params["subscription_id"] = subscription_id
+        if since:
+            params["since"] = since
+        if min_mc_usd is not None:
+            params["min_mc_usd"] = min_mc_usd
+        if max_mc_usd is not None:
+            params["max_mc_usd"] = max_mc_usd
+        return self._request("GET", "/copytrade/signals", params=params)
+
+    # ── Coordination Alerts (PRO/ULTRA) ──
+
+    def coordination_alerts_list(self) -> dict[str, Any]:
+        """List your coordination alert rules."""
+        return self._request("GET", "/kol/coordination/alerts")
+
+    def coordination_alerts_create(
+        self,
+        *,
+        name: str | None = None,
+        min_kols: int | None = None,
+        window_minutes: int | None = None,
+        min_score: int | None = None,
+        include_majors: bool | None = None,
+        cooldown_min: int | None = None,
+        score_jump_break: int | None = None,
+        delivery_mode: str | None = None,
+        webhook_url: str | None = None,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
+    ) -> dict[str, Any]:
+        """Create a coordination alert rule. Returns webhook_secret ONCE — store it.
+
+        Args:
+            name: Optional label.
+            min_kols: Minimum distinct KOLs in the window (default 3).
+            window_minutes: Peak-density window (1-60, default 15).
+            min_score: Minimum composite score 0-100 (default 60).
+            include_majors: Include WIF/BONK/POPCAT etc (default False).
+            cooldown_min: Silence per (rule, token) in minutes (default 60).
+            score_jump_break: Re-fire early when score jumps by N (default 10).
+            delivery_mode: 'websocket', 'webhook', or 'both'.
+            webhook_url: Required when delivery_mode includes 'webhook'.
+
+        PRO=5 rules, ULTRA=20.
+        """
+        body: dict[str, Any] = {}
+        if name is not None: body["name"] = name
+        if min_kols is not None: body["min_kols"] = min_kols
+        if window_minutes is not None: body["window_minutes"] = window_minutes
+        if min_score is not None: body["min_score"] = min_score
+        if include_majors is not None: body["include_majors"] = include_majors
+        if cooldown_min is not None: body["cooldown_min"] = cooldown_min
+        if score_jump_break is not None: body["score_jump_break"] = score_jump_break
+        if delivery_mode is not None: body["delivery_mode"] = delivery_mode
+        if webhook_url is not None: body["webhook_url"] = webhook_url
+        if min_mc_usd is not None: body["min_mc_usd"] = min_mc_usd
+        if max_mc_usd is not None: body["max_mc_usd"] = max_mc_usd
+        return self._request("POST", "/kol/coordination/alerts", body)
+
+    def coordination_alerts_get(self, rule_id: str) -> dict[str, Any]:
+        """Get one coordination alert rule by id."""
+        return self._request("GET", f"/kol/coordination/alerts/{rule_id}")
+
+    def coordination_alerts_update(self, rule_id: str, **kwargs: Any) -> dict[str, Any]:
+        """Update a coordination alert rule.
+
+        Accepts: name, min_kols, window_minutes, min_score, include_majors,
+        cooldown_min, score_jump_break, delivery_mode, webhook_url, is_active.
+        """
+        return self._request("PATCH", f"/kol/coordination/alerts/{rule_id}", kwargs)
+
+    def coordination_alerts_delete(self, rule_id: str) -> dict[str, Any]:
+        """Delete a coordination alert rule permanently."""
+        return self._request("DELETE", f"/kol/coordination/alerts/{rule_id}")
+
+    # ── First-touch signal ──
+
+    def first_touches(
+        self,
+        *,
+        since: str | None = None,
+        before: str | None = None,
+        limit: int | None = None,
+        kol: str | None = None,
+        min_kol_winrate_7d: float | None = None,
+        min_scout_tier: str | None = None,
+        min_n_touches: int | None = None,
+        strategy: str | None = None,
+        token_age_max_min: int | None = None,
+        min_first_buy_sol: float | None = None,
+        mint_suffix: str | None = None,
+        preset: str | None = None,
+        include: str | None = None,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
+    ) -> dict[str, Any]:
+        """Recent first-KOL-touch events on tokens.
+
+        Each event is the first time a tracked KOL bought a token mint. Filter
+        by scout tier (S/A/B/C), KOL winrate, token age, etc. Top scouts (S-tier)
+        empirically attract >=3 follow-on KOLs within 4h ~50% of the time vs
+        ~14% baseline (38d backtest, n=72,549).
+
+        Args:
+            since: ISO8601 — events strictly newer than this (polling cursor).
+            before: ISO8601 — events strictly older (pagination).
+            limit: 1-100, default 50.
+            kol: Filter to one KOL wallet (32-44 base58 chars).
+            min_scout_tier: 'S' | 'A' | 'B' | 'C' (S = best). Requires n_touches >= 30.
+            min_n_touches: Lower minimum sample size for scout scoring (default 30).
+            preset: 'scout' or 'fresh_launch' shortcuts.
+            include: 'followers_4h' to compute follower count for events >=4h old.
+        """
+        params: dict[str, Any] = {}
+        if since is not None: params["since"] = since
+        if before is not None: params["before"] = before
+        if limit is not None: params["limit"] = limit
+        if kol is not None: params["kol"] = kol
+        if min_kol_winrate_7d is not None: params["min_kol_winrate_7d"] = min_kol_winrate_7d
+        if min_scout_tier is not None: params["min_scout_tier"] = min_scout_tier
+        if min_n_touches is not None: params["min_n_touches"] = min_n_touches
+        if strategy is not None: params["strategy"] = strategy
+        if token_age_max_min is not None: params["token_age_max_min"] = token_age_max_min
+        if min_first_buy_sol is not None: params["min_first_buy_sol"] = min_first_buy_sol
+        if mint_suffix is not None: params["mint_suffix"] = mint_suffix
+        if preset is not None: params["preset"] = preset
+        if include is not None: params["include"] = include
+        if min_mc_usd is not None: params["min_mc_usd"] = min_mc_usd
+        if max_mc_usd is not None: params["max_mc_usd"] = max_mc_usd
+        return self._request("GET", "/kol/first-touches", params=params)
+
+    def first_touch_subscriptions_list(self) -> dict[str, Any]:
+        """List your first-touch webhook subscriptions (Ultra)."""
+        return self._request("GET", "/kol/first-touches/subscriptions")
+
+    def first_touch_subscriptions_create(
+        self,
+        *,
+        name: str | None = None,
+        filters: dict[str, Any] | None = None,
+        delivery_mode: str = "webhook",
+        webhook_url: str | None = None,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
+    ) -> dict[str, Any]:
+        """Create a first-touch webhook subscription (Ultra).
+
+        Returns webhook_secret ONCE — store it.
+
+        Args:
+            name: Optional label.
+            filters: Dict with kol, mint_suffix, min_first_buy_sol, min_scout_tier, min_n_touches.
+            delivery_mode: 'websocket', 'webhook', or 'both'.
+            webhook_url: Required when delivery_mode includes 'webhook'.
+            min_mc_usd: v1.6 — lower bound on first-touch MC.
+            max_mc_usd: v1.6 — upper bound on first-touch MC.
+        """
+        body: dict[str, Any] = {"delivery_mode": delivery_mode}
+        if name is not None: body["name"] = name
+        if filters is not None: body["filters"] = filters
+        if webhook_url is not None: body["webhook_url"] = webhook_url
+        if min_mc_usd is not None: body["min_mc_usd"] = min_mc_usd
+        if max_mc_usd is not None: body["max_mc_usd"] = max_mc_usd
+        return self._request("POST", "/kol/first-touches/subscriptions", body)
+
+    def first_touch_subscriptions_get(self, subscription_id: str) -> dict[str, Any]:
+        """Get one first-touch subscription by id."""
+        return self._request("GET", f"/kol/first-touches/subscriptions/{subscription_id}")
+
+    def first_touch_subscriptions_update(self, subscription_id: str, **kwargs: Any) -> dict[str, Any]:
+        """Update a first-touch subscription. Accepts: name, filters, delivery_mode, webhook_url, is_active."""
+        return self._request("PATCH", f"/kol/first-touches/subscriptions/{subscription_id}", kwargs)
+
+    def first_touch_subscriptions_delete(self, subscription_id: str) -> dict[str, Any]:
+        """Delete a first-touch subscription permanently."""
+        return self._request("DELETE", f"/kol/first-touches/subscriptions/{subscription_id}")
+
+    # ── Wallet Tracker ──
+
+    def wallet_tracker_watchlist(self) -> dict[str, Any]:
+        """List tracked wallets with labels and remaining capacity."""
+        return self._request("GET", "/wallet-tracker/watchlist")
+
+    def wallet_tracker_add(self, wallet_address: str, *, label: str | None = None) -> dict[str, Any]:
+        """Add a wallet to your watchlist.
+
+        Args:
+            wallet_address: Solana wallet address to track.
+            label: Optional human-readable label.
+        Returns HTTP 409 if already tracked or tier limit reached.
+        Limits: BASIC=10, PRO=50, ULTRA=100.
+        """
+        body: dict[str, Any] = {"wallet_address": wallet_address}
+        if label is not None:
+            body["label"] = label
+        return self._request("POST", "/wallet-tracker/watchlist", body)
+
+    def wallet_tracker_remove(self, wallet_address: str) -> dict[str, Any]:
+        """Remove a wallet from your watchlist."""
+        return self._request("DELETE", f"/wallet-tracker/watchlist/{wallet_address}")
+
+    def wallet_tracker_update_label(self, wallet_address: str, label: str | None) -> dict[str, Any]:
+        """Update the label for a tracked wallet. Pass None to clear."""
+        return self._request("PATCH", f"/wallet-tracker/watchlist/{wallet_address}", {"label": label})
+
+    def wallet_tracker_trades(
+        self,
+        *,
+        wallet: str | None = None,
+        action: str | None = None,
+        event_type: str | None = None,
+        limit: int = 50,
+        before: int | None = None,
+    ) -> dict[str, Any]:
+        """Historical swap/transfer events for all watched wallets.
+
+        Args:
+            wallet: Filter to a specific wallet address.
+            action: Filter by action ('buy', 'sell', 'transfer_in', 'transfer_out').
+            event_type: Filter by event type ('swap' or 'transfer').
+            limit: Max results (1–200). Default: 50.
+            before: Pagination cursor — block_time of the last event from previous page.
+        BASIC: truncated wallets, no tx_signature, no counterparty.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if wallet:
+            params["wallet"] = wallet
+        if action:
+            params["action"] = action
+        if event_type:
+            params["event_type"] = event_type
+        if before is not None:
+            params["before"] = before
+        return self._request("GET", "/wallet-tracker/trades", params=params)
+
+    def wallet_tracker_summary(
+        self,
+        *,
+        period: str = "7d",
+        wallet: str | None = None,
+    ) -> dict[str, Any]:
+        """Per-wallet stats (swap counts, SOL bought/sold, last activity).
+
+        Args:
+            period: Time window — '24h', '7d', or '30d'. Default: '7d'.
+            wallet: Filter to a specific wallet address.
+        """
+        params: dict[str, Any] = {"period": period}
+        if wallet:
+            params["wallet"] = wallet
+        return self._request("GET", "/wallet-tracker/summary", params=params)
+
+    # ── Universal wallet endpoints (PRO+, any wallet — not just curated KOLs) ──
+
+    def wallet_stats(self, address: str) -> dict[str, Any]:
+        """Aggregate stats over 90d + cross-product flags (is_kol, is_alpha_tracked
+        + bot_confidence, is_deployer) for any Solana wallet. PRO+.
+
+        Args:
+            address: Base58 wallet address.
+        """
+        return self._request("GET", f"/wallet/{address}")
+
+    def wallet_pnl(self, address: str) -> dict[str, Any]:
+        """Full FIFO cost-basis PnL: realized + unrealized SOL, profit factor,
+        max drawdown, hold-time stats, daily UTC PnL curve, closed positions
+        sorted by pnl desc, open positions with live unrealized P&L.
+        Cached with dynamic TTL — cache hits don't count against quota. PRO+.
+
+        Args:
+            address: Base58 wallet address.
+        """
+        return self._request("GET", f"/wallet/{address}/pnl")
+
+    def wallet_positions(self, address: str) -> dict[str, Any]:
+        """Open positions only — lighter slice of `wallet_pnl`. Shares the same
+        cache. PRO+.
+
+        Args:
+            address: Base58 wallet address.
+        """
+        return self._request("GET", f"/wallet/{address}/positions")
+
+    def wallet_trades(
+        self,
+        address: str,
+        *,
+        limit: int = 100,
+        cursor: str | None = None,
+        action: str | None = None,
+        token_mint: str | None = None,
+        since: int | None = None,
+        until: int | None = None,
+    ) -> dict[str, Any]:
+        """Cursor-paginated raw trades for any wallet (default last 90 days).
+        Cursor is stable across DESC pagination — pass `next_cursor` from the
+        previous response to fetch older trades. PRO+.
+
+        Args:
+            address: Base58 wallet address.
+            limit: 1-500, default 100.
+            cursor: From `next_cursor` of a previous response.
+            action: 'buy' or 'sell' filter.
+            token_mint: Filter to a single token.
+            since: Unix epoch seconds (default now-90d).
+            until: Unix epoch seconds (default now).
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        if action is not None:
+            params["action"] = action
+        if token_mint is not None:
+            params["token_mint"] = token_mint
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        return self._request("GET", f"/wallet/{address}/trades", params=params)

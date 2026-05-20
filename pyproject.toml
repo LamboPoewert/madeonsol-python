@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "madeonsol-x402"
-version = "0.2.0"
+version = "1.8.0"
 description = "x402 client SDK for MadeOnSol Solana KOL intelligence API. Works with LangChain, CrewAI, and standalone."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-keywords = ["solana", "x402", "kol", "trading", "api", "langchain", "crewai", "ai-agent"]
+keywords = ["solana", "x402", "kol", "kol-tracker", "trading", "api", "langchain", "crewai", "ai-agent", "memecoin", "memecoin-tracker", "alpha", "alpha-bot", "pumpfun", "pumpfun-sniper", "deployer-hunter", "smart-money", "copy-trading", "solana-trading-bot", "madeonsol"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

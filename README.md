@@ -1,16 +1,43 @@
 # madeonsol-x402
 
+[![PyPI](https://img.shields.io/pypi/v/madeonsol-x402?style=flat-square)](https://pypi.org/project/madeonsol-x402/)
+[![Python](https://img.shields.io/pypi/pyversions/madeonsol-x402?style=flat-square)](https://pypi.org/project/madeonsol-x402/)
+[![Downloads](https://img.shields.io/pypi/dm/madeonsol-x402?style=flat-square)](https://pypi.org/project/madeonsol-x402/)
+[![GitHub stars](https://img.shields.io/github/stars/LamboPoewert/madeonsol-python?style=flat-square&logo=github)](https://github.com/LamboPoewert/madeonsol-python)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+
+> ⭐ **[Star on GitHub](https://github.com/LamboPoewert/madeonsol-python)** · 📂 **[Examples](./examples/)** · 📚 **[API docs](https://madeonsol.com/api-docs)**
+
 Python SDK for the [MadeOnSol](https://madeonsol.com) Solana KOL intelligence API.
+
+> Real-time Solana trading intelligence: track 1,000+ KOL wallets with <3s latency, score 6,700+ Pump.fun deployers by reputation, score 47,000+ early-buyer wallets, run server-side copy-trade rules, monitor any Solana wallet, and stream every DEX trade. Free tier: 200 requests/day at [madeonsol.com/pricing](https://madeonsol.com/pricing) — no credit card required.
+
+> **New in 1.7.1** *(2026-05-13)* — Velocity field shape corrected to match the API: `mc_change_pct`, `volume_usd`, `mev_volume_pct` are top-level on the token response, each keyed by `'5m'`/`'15m'`/`'1h'`/`'2h'`/`'4h'`. The 1.7.0 README documented a `velocity[window]` shape that didn't match the wire format.
+>
+> **New in 1.7.0** *(2026-05-12)* — **Token directory + account inspection.** `client.rest.tokens_list(min_liq=10000, min_volume_1h_usd=5000, max_mev_share_pct=60, mc_change_1h_min_pct=20, sort="mc_desc")` filters every active mint by MC band, liquidity floor, primary DEX, authority/safety flags, computed 1h volume, MEV-share ceiling, and MC-change deltas. Default `min_liq=2000` skips phantom-MC dust; pass `min_liq=0` to opt out. `client.rest.me()` — read your tier, daily/burst quota state, and per-feature usage in one call (no header parsing). Velocity / MEV-share fields added to every token response: `mc_change_pct`, `volume_usd`, `mev_volume_pct` (each keyed by `'5m'`/`'15m'`/`'1h'`/`'2h'`/`'4h'`) plus `history_age_seconds`. `/token/{mint}` 400s now ship structured `code`, `reason`, `received_length`, `example`, and `docs`. Deprecated `avg_entry_mc_usd` fully removed.
+
+## Quick start (10 seconds)
+
+```bash
+pip install madeonsol-x402
+```
+
+```python
+from madeonsol_x402 import MadeOnSolClient
+client = MadeOnSolClient(api_key="msk_...")  # free tier at https://madeonsol.com/pricing
+trades = client.kol_feed(limit=5, action="buy")
+```
 
 ## Authentication
 
-Three options (in priority order):
+Two options:
 
 | Method | Parameter / Env var | Best for |
 |---|---|---|
-| **MadeOnSol API key** (recommended) | `api_key` / `MADEONSOL_API_KEY` | Developers — [get a free key](https://madeonsol.com/developer) |
-| RapidAPI key | `rapidapi_key` / `RAPIDAPI_KEY` | RapidAPI subscribers |
+| **MadeOnSol API key** (recommended) | `api_key` / `MADEONSOL_API_KEY` | Developers — [get a free key](https://madeonsol.com/pricing) |
 | x402 micropayments | `private_key` / `SVM_PRIVATE_KEY` | AI agents with Solana wallets |
+
+> **v1.0 breaking change:** RapidAPI auth has been removed. The MadeOnSol RapidAPI marketplace was retired on 2026-04-19. If you were using `rapidapi_key=` or `RAPIDAPI_KEY`, get a free `msk_` key at [madeonsol.com/pricing](https://madeonsol.com/pricing).
 
 ## Install
 
@@ -27,29 +54,35 @@ pip install madeonsol-x402[crewai]            # + CrewAI tools
 ```python
 from madeonsol_x402 import MadeOnSolClient
 
-# Option 1: API key (simplest — get one free at madeonsol.com/developer)
 client = MadeOnSolClient(api_key="msk_your_api_key_here")
 
-# Option 2: RapidAPI key
-# client = MadeOnSolClient(rapidapi_key="your_rapidapi_key")
-
-# Option 3: x402 micropayments (AI agents)
-# client = MadeOnSolClient(private_key="your_solana_private_key_base58")
-
-# Real-time KOL trades
+# Real-time KOL trades — each trade now includes
+# market_cap_usd_at_trade and price_usd_at_trade (real-time MC at the
+# moment the swap fired, sourced from our in-memory price tracker).
 trades = client.kol_feed(limit=10, action="buy")
+for t in trades["trades"]:
+    print(f'{t["kol_name"]} bought {t["token_symbol"]} for {t["sol_amount"]:.2f} SOL @ MC ${t.get("market_cap_usd_at_trade") or "?"}')
 
 # KOL convergence signals
 signals = client.kol_coordination(period="24h", min_kols=3)
 
-# KOL leaderboard
-leaders = client.kol_leaderboard(period="7d")
+# KOL leaderboard — 180 days of history
+leaders = client.kol_leaderboard(period="7d")  # today | 7d | 30d | 90d | 180d
 
-# Deployer alerts
+# Deployer alerts (all tiers can filter by tier)
 alerts = client.deployer_alerts(limit=10)
+elite_only = client.deployer_alerts(limit=10, tier="elite")
 
-# Free discovery endpoint
-info = client.discovery()
+# Alpha wallet leaderboard (REST)
+top = client.rest.alpha_leaderboard(period="30d", sort="win_rate")
+
+# Wallet Tracker (REST)
+client.rest.wallet_tracker_add("WALLET_ADDRESS", label="whale")
+events = client.rest.wallet_tracker_trades(limit=50)
+
+# Inspect rate-limit headers from the most recent REST call
+print(client.rest.last_rate_limit)
+# {'limit': 100, 'remaining': 92, 'reset': 1714000000, 'request_id': 'rid_abc123'}
 ```
 
 ## LangChain
@@ -57,7 +90,7 @@ info = client.discovery()
 ```python
 from madeonsol_x402.langchain_tools import ALL_TOOLS
 
-# Set MADEONSOL_API_KEY, RAPIDAPI_KEY, or SVM_PRIVATE_KEY env var
+# Set MADEONSOL_API_KEY or SVM_PRIVATE_KEY env var
 agent = create_react_agent(llm, tools=ALL_TOOLS)
 ```
 
@@ -71,20 +104,221 @@ agent = Agent(role="Solana Analyst", tools=ALL_TOOLS)
 
 ## Endpoints
 
+### KOL Intelligence (x402-priced — also reachable via `msk_` API key)
+
 | Method | Description |
 |---|---|
-| `kol_feed()` | Real-time KOL trade feed (946 wallets) |
+| `kol_feed()` | Real-time KOL trade feed (1,000+ wallets) |
 | `kol_coordination()` | Multi-KOL convergence signals |
-| `kol_leaderboard()` | PnL and win rate rankings |
-| `deployer_alerts()` | Elite Pump.fun deployer launches |
-| `discovery()` | List all endpoints and prices (free) |
+| `kol_leaderboard()` | PnL and win rate rankings — windows: today, 7d, 30d, 90d, 180d (180-day retention) |
+| `kol_pairs()` | KOL affinity matrix — which KOLs co-trade the same tokens |
+| `kol_hot_tokens()` | KOL momentum tokens — accelerating buy interest |
+| `kol_trending_tokens()` | Tokens ranked by KOL buy volume |
+| `kol_token_entry_order(mint)` | Ranked KOL first-buyer order for a token |
+| `kol_compare_wallets(wallets)` | Side-by-side comparison of 2–5 KOL wallets |
+| `kol_alerts_recent()` | Live KOL alert feed — clusters, fresh-token buys, heating-up |
+| `deployer_alerts()` | Pump.fun deployer launches with KOL enrichment |
+| `wallet_stats(address)` | **New 1.8** · Universal wallet stats (90d) + cross-product flags. $0.005 |
+| `wallet_pnl(address)` | **New 1.8** · FIFO cost-basis PnL: realized + unrealized, profit factor, drawdown, daily curve, closed + open positions. $0.02 |
+| `wallet_positions(address)` | **New 1.8** · Open positions with live unrealized from market-cap tracker. Shares /pnl cache. $0.01 |
+| `wallet_trades(address, ...)` | **New 1.8** · Cursor-paginated raw trades with action / token / since-until filters. $0.005 |
+| `discovery()` | Free — list all endpoints and prices |
+
+### REST API — KOL/deployer detail
+
+| Method | Description |
+|---|---|
+| `rest.kol_pnl(wallet, period=)` | Deep per-wallet PnL: equity curve, risk metrics, closed positions. ULTRA adds open positions (tokens bought but not yet sold). |
+| `rest.kol_timing(wallet, period=)` | KOL entry/exit timing profile — available on all tiers |
+| `rest.deployer_trajectory(wallet)` | Deployer skill curve — streaks, rolling bond rate, trend — available on all tiers |
+
+### Alpha Wallet Intelligence
+
+Scored from 47,000+ early-buyer records (wallets seen in the first 20 buyers of Pump.fun tokens).
+
+| Method | Tier | Description |
+|---|---|---|
+| `rest.alpha_leaderboard(period=, min_tokens=, sort=, exclude_bots=)` | All | Up to 100 results on Free/Pro; ULTRA unlocks 500 + bot signals |
+| `rest.alpha_wallet(wallet)` | ULTRA | Full per-token breakdown + bot_signals array |
+| `rest.alpha_linked(wallet)` | ULTRA | Wallets behaviorally linked (co-bought 3+ tokens within 2s) |
+
+### Token Quality
+
+| Method | Tier | Description |
+|---|---|---|
+| `rest.token_cap_table(mint)` | PRO+ | First non-deployer early buyers, enriched with PnL/KOL/bot flags. PRO=10, ULTRA=20 |
+| `rest.token_buyer_quality(mint)` | All | 0–100 buyer-quality score + full breakdown (5-min cached) |
+
+### KOL Coordination Alerts (v1.1 — push signals)
+
+Real-time push alerts when a cluster of KOLs co-buys the same token. Fires within ~1s of the triggering trade (pg_notify push, not polling). Delivered via WebSocket (`kol:coordination` channel, user-scoped) and/or HMAC-signed webhook. PRO=5 rules, ULTRA=20.
+
+```python
+res = client.rest.coordination_alerts_create(
+    name="fresh pump cluster",
+    min_kols=4,
+    window_minutes=15,     # peak-density window (1-60)
+    min_score=70,          # 0-100 composite score cutoff
+    include_majors=False,  # filter WIF/BONK/POPCAT
+    cooldown_min=60,       # one fire per (rule, token) per 60min...
+    score_jump_break=10,   # ...unless score jumps +10 vs last fire
+    delivery_mode="both",
+    webhook_url="https://you.com/hooks/coord",
+)
+# store res["webhook_secret"] — shown ONCE
+```
+
+`coordination_alerts_list()`, `coordination_alerts_get(id)`, `coordination_alerts_update(id, **fields)`, `coordination_alerts_delete(id)`.
+
+**Webhook signature:** `X-MadeOnSol-Signature: sha256=<hmac>` where `hmac = HMAC-SHA256(webhook_secret, timestamp + "." + rawBody)`, and `X-MadeOnSol-Timestamp` carries the unix seconds used.
+
+**The `kol_coordination()` response** now includes v1.1 fields: `peak_window_start/end`, `peak_kols`, `peak_buys` (the busiest slice within the period), `exited_count` + per-KOL `exited` (net-flow-negative wallets), and `coordination_score` (0-100). Pass `min_score=`, `window_minutes=`, `include_majors=` to filter.
+
+### KOL First-Touch Signal *(new in 1.3)*
+
+Every "first KOL buy on a token mint" event — when a tracked KOL is the first of the cohort to touch a token. Filterable by **scout tier** (S/A/B/C from `mv_kol_scout_score`), KOL winrate, token age, mint suffix.
+
+**Backtest:** S-tier scouts attract ≥3 follow-on KOLs within 4h ~50% of the time vs ~14% baseline (38d / 491k buys / 72,549 events). Public leaderboard at [madeonsol.com/kol/scouts](https://madeonsol.com/kol/scouts).
+
+```python
+# REST query — S-tier scouts on tokens younger than 1h
+events = client.rest.first_touches(preset="scout", min_scout_tier="S", limit=20)
+for e in events["events"]:
+    fk = e["first_kol"]
+    print(fk["name"], "scouted", e["token_symbol"], f"(scout_score={fk['scout_score']}%)")
+
+# Webhook subscription (Ultra) — HMAC-signed push
+res = client.rest.first_touch_subscriptions_create(
+    name="S-tier scouts on pump tokens",
+    filters={"min_scout_tier": "S", "mint_suffix": "pump"},
+    delivery_mode="webhook",
+    webhook_url="https://you.com/hooks/scout",
+)
+# store res["webhook_secret"] — shown ONCE
+```
+
+CRUD: `first_touch_subscriptions_list()`, `first_touch_subscriptions_get(id)`, `first_touch_subscriptions_update(id, **fields)`, `first_touch_subscriptions_delete(id)`. ULTRA only — up to 10 active.
+
+> **Don't poll — push.** Median lead time before the second KOL is **12 seconds**. WebSocket channel: `kol:first_touches` (PRO+).
+
+### Copy-Trade Rules (PRO/ULTRA)
+
+Server-side rules that fire signals when one of your watched source wallets trades. Delivered via webhook (HMAC-signed) and/or WebSocket. PRO=3 rules × 5 source wallets each; ULTRA=20 × 50.
+
+| Method | Description |
+|---|---|
+| `rest.copy_trade_list()` | List your rules |
+| `rest.copy_trade_create(source_wallets, sizing_amount, ...)` | Create a rule. Returns `webhook_secret` **once** — store it |
+| `rest.copy_trade_get(id)` | Get one rule |
+| `rest.copy_trade_update(id, **fields)` | Update fields or toggle `is_active` |
+| `rest.copy_trade_delete(id)` | Delete permanently |
+| `rest.copy_trade_signals(subscription_id=, since=, limit=)` | Recent fired signals (up to 7 days, 1–500) |
+
+### Wallet Tracker
+
+| Method | Description |
+|---|---|
+| `rest.wallet_tracker_watchlist()` | List tracked wallets and remaining capacity (Free: 10, Pro: 50, Ultra: 100) |
+| `rest.wallet_tracker_add(wallet_address, label=)` | Add wallet to watchlist |
+| `rest.wallet_tracker_remove(wallet_address)` | Remove wallet from watchlist |
+| `rest.wallet_tracker_update_label(wallet_address, label)` | Update wallet label |
+| `rest.wallet_tracker_trades(wallet=, action=, event_type=, limit=, before=)` | Historical swap/transfer events (120-day retention) |
+| `rest.wallet_tracker_summary(period=, wallet=)` | Per-wallet stats: swap counts, SOL bought/sold, last event |
+
+### Universal Wallet API *(new in 1.8)*
+
+Per-wallet endpoints that work on **any** Solana wallet, not just curated KOLs. FIFO cost-basis PnL over the last 90 days. PRO+ on every endpoint. Cache hits don't count against your daily quota.
+
+| Method | Description |
+|---|---|
+| `rest.wallet_stats(address)` | Aggregate stats over 90d + cross-product flags (is_kol + kol_name, is_alpha_tracked + bot_confidence + win_rate, is_deployer + tokens_deployed) |
+| `rest.wallet_pnl(address)` | Full FIFO cost-basis PnL: realized + unrealized SOL, profit factor, max drawdown, avg + median hold minutes, daily UTC PnL curve, closed positions sorted by pnl desc, open positions with live unrealized from mc-tracker |
+| `rest.wallet_positions(address)` | Open lots only — shares /pnl cache, lighter response |
+| `rest.wallet_trades(address, limit=, cursor=, action=, token_mint=, since=, until=)` | Cursor-paginated raw trades. Default window: last 90 days. limit 1-500 |
+
+**Cost-basis honesty**: observable only inside the 90-day data window. Overflow sells (no matching buy in window) are silently discarded rather than fabricated. `notes.cost_basis_observable_from` makes the cutoff visible per call.
+
+### Webhooks + Streaming
+
+| Method | Description |
+|---|---|
+| `rest.create_webhook(url, events, filters=)` | Register webhook. Returns `secret` once — store it for HMAC verification |
+| `rest.list_webhooks()` | List your webhooks |
+| `rest.get_webhook(id)` | Get one + recent delivery log |
+| `rest.update_webhook(id, **kwargs)` | Update URL, events, filters, or re-enable |
+| `rest.delete_webhook(id)` | Delete permanently |
+| `rest.test_webhook(id)` | Send test payload |
+| `rest.get_stream_token()` | Issue a 24h WebSocket streaming token (returns `ws_url` + `dex_ws_url`) |
+
+### Rate-limit headers
+
+Every successful REST response captures rate-limit headers in `rest.last_rate_limit`:
+
+```python
+client.rest.alpha_leaderboard()
+rl = client.rest.last_rate_limit
+# {'limit': 100, 'remaining': 92, 'reset': 1714000000, 'request_id': 'rid_abc123'}
+if rl['remaining'] is not None and rl['remaining'] < 5:
+    print(f"Throttle warning — {rl['remaining']}/{rl['limit']} requests left")
+```
+
+### DEX Firehose (Ultra) — WebSocket
+
+`rest.get_stream_token()` returns `dex_ws_url` (Ultra only). Connect with any WebSocket client (`websockets`, `websocket-client`, etc.) and use the multi-subscription protocol — up to **10 named subs per connection**, each with its own `sub_id`, server-side filters, and optional replay from a 500-trade in-memory ring buffer.
+
+```python
+import asyncio, json, websockets
+from madeonsol_x402 import MadeOnSolClient
+
+client = MadeOnSolClient(api_key="msk_...")
+
+async def main():
+    token = client.rest.get_stream_token()  # {"token", "ws_url", "dex_ws_url", ...}
+
+    # token MUST be appended as query param
+    async with websockets.connect(f"{token['dex_ws_url']}?token={token['token']}") as ws:
+        await ws.send(json.dumps({
+            "type": "subscribe",
+            "sub_id": "fresh-pumpfun",
+            "replay": 50,                       # up to 500 from ring buffer
+            "filters": {
+                "dex": "pumpfun",
+                "token_age_max_seconds": 300,
+                "min_sol": 0.5,
+                "action": "buy",
+            },
+        }))
+
+        async for raw in ws:
+            msg = json.loads(raw)
+            if msg.get("channel") == "dex:trades":
+                d = msg["data"]
+                print(msg["sub_id"], d["dex"], d["action"], d["sol_amount"])
+
+asyncio.run(main())
+```
+
+**Operations** (all carry `sub_id`): `subscribe`, `update` (replace filters in place), `unsubscribe`, `list`, `ping`. **Filters:** `token_mint(s)` (≤50), `wallet(s)` (≤50), `dex` (`pumpfun` | `pumpamm` | `pumpswap` | `raydium` | `jupiter` | `orca` | `meteora` | `launchlab`), `program`, `deployer_tier`, `token_age_max_seconds`, `market_cap_min/max_sol`, `min_sol`, `max_sol`, `action`. At least one targeting filter is required. Inbound rate limit: 5 messages/sec.
+
+Full protocol reference: [madeonsol.com/api-docs#streaming](https://madeonsol.com/api-docs#streaming).
+
+## Tiers
+
+| Tier | Price | Wallets tracked | Requests/day |
+|------|-------|-----------------|--------------|
+| Free | $0 | 10 | 200 |
+| Pro | $49/mo | 50 | 10,000 |
+| Ultra | $149/mo | 100 + WS events | 100,000 |
+
+Free tier returns the full REST response shape on every endpoint — real wallets, TX signatures, full precision. Paid tiers unlock webhooks, WebSockets, rule engines, and ULTRA-only data depth. Get a key at [madeonsol.com/pricing](https://madeonsol.com/pricing).
 
 ## Also Available
 
 | Platform | Package |
 |---|---|
-| TypeScript SDK | [`madeonsol-x402`](https://www.npmjs.com/package/madeonsol-x402) |
-| MCP Server (Claude, Cursor) | [`mcp-server-madeonsol`](https://www.npmjs.com/package/mcp-server-madeonsol) |
+| TypeScript SDK | [`madeonsol`](https://www.npmjs.com/package/madeonsol) on npm |
+| Rust SDK | [`madeonsol`](https://crates.io/crates/madeonsol) on crates.io |
+| MCP Server (Claude, Cursor) | [`mcp-server-madeonsol`](https://www.npmjs.com/package/mcp-server-madeonsol) · [Smithery](https://smithery.ai/servers/madeonsol/solana-kol-intelligence) · [Glama](https://glama.ai/mcp/servers/LamboPoewert/mcp-server-madeonsol) |
 | ElizaOS | [`@madeonsol/plugin-madeonsol`](https://www.npmjs.com/package/@madeonsol/plugin-madeonsol) |
 | Solana Agent Kit | [`solana-agent-kit-plugin-madeonsol`](https://www.npmjs.com/package/solana-agent-kit-plugin-madeonsol) |
 
