@@ -436,6 +436,66 @@ class MadeOnSolClient:
             params["until"] = until
         return self._get_sync(f"/api/x402/wallet/{address}/trades", params)
 
+    def scout_leaderboard(
+        self,
+        *,
+        limit: int | None = None,
+        scout_tier: str | None = None,
+        sort: str | None = None,
+    ) -> dict[str, Any]:
+        """v1.9 — Scout leaderboard: top KOLs ranked by scout score, first-touch
+        frequency, and swarm attraction rate. ULTRA only.
+
+        Args:
+            limit: Max entries to return.
+            scout_tier: Filter to 'S', 'A', 'B', or 'C'.
+            sort: 'swarm_3plus_pct', 'n_first_touches_30d', 'swarm_5plus_pct', or 'scout_score'.
+        """
+        params: dict[str, Any] = {}
+        if limit is not None: params["limit"] = limit
+        if scout_tier is not None: params["scout_tier"] = scout_tier
+        if sort is not None: params["sort"] = sort
+        return self._get_sync("/api/x402/kol/scouts/leaderboard", params or None)
+
+    def coordination_history(
+        self,
+        *,
+        limit: int | None = None,
+        since: str | None = None,
+        min_score: int | None = None,
+    ) -> dict[str, Any]:
+        """v1.9 — Coordination history: past coordination alert fires with token,
+        score, KOL count. ULTRA only.
+
+        Args:
+            limit: Max entries.
+            since: ISO 8601 — events after this timestamp.
+            min_score: Minimum coordination score.
+        """
+        params: dict[str, Any] = {}
+        if limit is not None: params["limit"] = limit
+        if since is not None: params["since"] = since
+        if min_score is not None: params["min_score"] = min_score
+        return self._get_sync("/api/x402/kol/coordination/history", params or None)
+
+    def kol_consensus(self, mint: str) -> dict[str, Any]:
+        """v1.9 — KOL consensus on a token: buyers/sellers, exit rate, net flow,
+        median entry MC. ULTRA gets individual wallet arrays.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._get_sync(f"/api/x402/tokens/{mint}/kol-consensus")
+
+    def peak_history(self, mint: str) -> dict[str, Any]:
+        """v1.9 — Peak MC history: ATH, decline from peak, MC at bond and at
+        1h/6h/24h/7d after bond.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._get_sync(f"/api/x402/tokens/{mint}/peak-history")
+
     def discovery(self) -> dict[str, Any]:
         """Free — list all endpoints and prices."""
         resp = httpx.get(f"{self.base_url}/api/x402")
@@ -1095,3 +1155,138 @@ class MadeOnSolREST:
         if until is not None:
             params["until"] = until
         return self._request("GET", f"/wallet/{address}/trades", params=params)
+
+    # ── Price alerts (PRO/ULTRA, v1.9) ──
+
+    def price_alerts_list(self) -> dict[str, Any]:
+        """List your price alerts. PRO=5, ULTRA=25."""
+        return self._request("GET", "/price-alerts")
+
+    def price_alerts_create(
+        self,
+        *,
+        token_mint: str,
+        drop_pct: float,
+        recovery_pct: float | None = None,
+        name: str | None = None,
+        delivery_mode: str | None = None,
+        webhook_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a price alert. Captures baseline MC from current token_prices.
+        Fires when MC drops below baseline x (1 - drop_pct/100). Optional
+        recovery_pct re-fires on bounce. Returns webhook_secret ONCE -- store it.
+
+        Args:
+            token_mint: Solana mint address.
+            drop_pct: Drop % threshold (0.01-99.99).
+            recovery_pct: Recovery % (0.01-1000). Optional.
+            name: Optional label.
+            delivery_mode: 'webhook', 'websocket', or 'both'. Default 'webhook'.
+            webhook_url: Required when delivery_mode includes 'webhook'.
+        """
+        body: dict[str, Any] = {"token_mint": token_mint, "drop_pct": drop_pct}
+        if recovery_pct is not None: body["recovery_pct"] = recovery_pct
+        if name is not None: body["name"] = name
+        if delivery_mode is not None: body["delivery_mode"] = delivery_mode
+        if webhook_url is not None: body["webhook_url"] = webhook_url
+        return self._request("POST", "/price-alerts", body)
+
+    def price_alerts_get(self, alert_id: int) -> dict[str, Any]:
+        """Get one price alert by id."""
+        return self._request("GET", f"/price-alerts/{alert_id}")
+
+    def price_alerts_update(self, alert_id: int, **kwargs: Any) -> dict[str, Any]:
+        """Update alert name, delivery mode, webhook URL, or is_active.
+        Thresholds (drop_pct, recovery_pct) are immutable.
+
+        Accepts: name, delivery_mode, webhook_url, is_active.
+        """
+        return self._request("PATCH", f"/price-alerts/{alert_id}", kwargs)
+
+    def price_alerts_delete(self, alert_id: int) -> dict[str, Any]:
+        """Delete a price alert and its event history."""
+        return self._request("DELETE", f"/price-alerts/{alert_id}")
+
+    def price_alerts_events(
+        self,
+        *,
+        alert_id: int | None = None,
+        event_type: str | None = None,
+        since: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Fired event history (30-day retention). Filter by alert_id, event_type, since.
+
+        Args:
+            alert_id: Filter to one alert.
+            event_type: 'dip' or 'recovery'.
+            since: ISO 8601 — events after this timestamp.
+            limit: Max events to return.
+        """
+        params: dict[str, Any] = {}
+        if alert_id is not None: params["alert_id"] = alert_id
+        if event_type is not None: params["event_type"] = event_type
+        if since is not None: params["since"] = since
+        if limit is not None: params["limit"] = limit
+        return self._request("GET", "/price-alerts/events", params=params or None)
+
+    # ── v1.9 new endpoints ──
+
+    def scout_leaderboard(
+        self,
+        *,
+        limit: int | None = None,
+        scout_tier: str | None = None,
+        sort: str | None = None,
+    ) -> dict[str, Any]:
+        """Scout leaderboard: top KOLs ranked by scout score and swarm attraction
+        rate. ULTRA only.
+
+        Args:
+            limit: Max entries.
+            scout_tier: 'S', 'A', 'B', or 'C'.
+            sort: 'swarm_3plus_pct', 'n_first_touches_30d', 'swarm_5plus_pct', or 'scout_score'.
+        """
+        params: dict[str, Any] = {}
+        if limit is not None: params["limit"] = limit
+        if scout_tier is not None: params["scout_tier"] = scout_tier
+        if sort is not None: params["sort"] = sort
+        return self._request("GET", "/kol/scouts/leaderboard", params=params or None)
+
+    def coordination_history(
+        self,
+        *,
+        limit: int | None = None,
+        since: str | None = None,
+        min_score: int | None = None,
+    ) -> dict[str, Any]:
+        """Coordination history: past coordination alert fires. ULTRA only.
+
+        Args:
+            limit: Max entries.
+            since: ISO 8601 — events after this.
+            min_score: Minimum coordination score.
+        """
+        params: dict[str, Any] = {}
+        if limit is not None: params["limit"] = limit
+        if since is not None: params["since"] = since
+        if min_score is not None: params["min_score"] = min_score
+        return self._request("GET", "/kol/coordination/history", params=params or None)
+
+    def kol_consensus(self, mint: str) -> dict[str, Any]:
+        """KOL consensus on a token: buyers/sellers, exit rate, net flow. ULTRA
+        gets individual wallet arrays.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._request("GET", f"/tokens/{mint}/kol-consensus")
+
+    def peak_history(self, mint: str) -> dict[str, Any]:
+        """Peak MC history: ATH, decline from peak, MC at bond and at
+        1h/6h/24h/7d after bond.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._request("GET", f"/tokens/{mint}/peak-history")

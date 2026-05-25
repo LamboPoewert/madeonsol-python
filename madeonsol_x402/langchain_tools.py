@@ -13,31 +13,25 @@ from .client import MadeOnSolClient, MadeOnSolREST
 
 
 def _client() -> MadeOnSolClient:
-    """Create client using env vars. Priority: MADEONSOL_API_KEY > RAPIDAPI_KEY > SVM_PRIVATE_KEY."""
+    """Create client using env vars. Priority: MADEONSOL_API_KEY > SVM_PRIVATE_KEY."""
     api_key = os.environ.get("MADEONSOL_API_KEY", "")
-    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
     private_key = os.environ.get("SVM_PRIVATE_KEY", "")
     if api_key:
         return MadeOnSolClient(api_key=api_key)
-    if rapidapi_key:
-        return MadeOnSolClient(rapidapi_key=rapidapi_key)
     if private_key:
         return MadeOnSolClient(private_key=private_key)
     raise ValueError(
-        "Set MADEONSOL_API_KEY (free at madeonsol.com/developer), RAPIDAPI_KEY, or SVM_PRIVATE_KEY"
+        "Set MADEONSOL_API_KEY — free at https://madeonsol.com/pricing — or SVM_PRIVATE_KEY"
     )
 
 
 def _rest_client() -> MadeOnSolREST:
-    """Create REST client for webhooks/streaming. Priority: MADEONSOL_API_KEY > RAPIDAPI_KEY."""
+    """Create REST client for webhooks/streaming. Requires MADEONSOL_API_KEY."""
     api_key = os.environ.get("MADEONSOL_API_KEY", "")
-    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
     if api_key:
         return MadeOnSolREST(api_key=api_key)
-    if rapidapi_key:
-        return MadeOnSolREST(rapidapi_key=rapidapi_key)
     raise ValueError(
-        "Set MADEONSOL_API_KEY (free at madeonsol.com/developer) or RAPIDAPI_KEY for webhook/streaming features"
+        "Set MADEONSOL_API_KEY — free at https://madeonsol.com/pricing — for webhook/streaming features"
     )
 
 
@@ -48,7 +42,7 @@ class KolFeedInput(BaseModel):
 
 class MadeOnSolKolFeed(BaseTool):
     name: str = "madeonsol_kol_feed"
-    description: str = "Get real-time Solana KOL trades from 946 tracked wallets via MadeOnSol. Costs $0.005 USDC per request."
+    description: str = "Get real-time Solana KOL trades from 1,000+ tracked wallets via MadeOnSol. Costs $0.005 USDC per request."
     args_schema: type[BaseModel] = KolFeedInput
 
     def _run(self, limit: int = 10, action: str | None = None) -> str:
@@ -72,7 +66,10 @@ class MadeOnSolKolCoordination(BaseTool):
 
 
 class KolLeaderboardInput(BaseModel):
-    period: str = Field(default="7d", description="Time period: today, 7d, or 30d")
+    period: str = Field(
+        default="7d",
+        description="Time period: today, 7d, 30d, 90d, or 180d (180-day retention)",
+    )
     limit: int = Field(default=10, description="Number of KOLs (1-50)")
 
 
@@ -88,15 +85,22 @@ class MadeOnSolKolLeaderboard(BaseTool):
 
 class DeployerAlertsInput(BaseModel):
     limit: int = Field(default=10, description="Number of alerts (1-100)")
+    tier: str | None = Field(
+        default=None,
+        description="Filter by deployer tier: elite, good, moderate, rising, or cold. PRO/ULTRA only — BASIC callers receive 403.",
+    )
 
 
 class MadeOnSolDeployerAlerts(BaseTool):
     name: str = "madeonsol_deployer_alerts"
-    description: str = "Get elite Pump.fun deployer launch alerts with KOL buy enrichment. Costs $0.01 USDC per request."
+    description: str = (
+        "Get Pump.fun deployer launch alerts with KOL buy enrichment. "
+        "PRO/ULTRA subscribers can filter by deployer tier. Costs $0.01 USDC per request."
+    )
     args_schema: type[BaseModel] = DeployerAlertsInput
 
-    def _run(self, limit: int = 10) -> str:
-        data = _client().deployer_alerts(limit=limit)
+    def _run(self, limit: int = 10, tier: str | None = None) -> str:
+        data = _client().deployer_alerts(limit=limit, tier=tier)
         return json.dumps(data, indent=2)
 
 
@@ -108,7 +112,7 @@ class CreateWebhookInput(BaseModel):
 
 class MadeOnSolCreateWebhook(BaseTool):
     name: str = "madeonsol_create_webhook"
-    description: str = "Register a webhook to receive real-time push notifications for KOL trades and deployer alerts. Requires RAPIDAPI_KEY."
+    description: str = "Register a webhook to receive real-time push notifications for KOL trades and deployer alerts. Requires MADEONSOL_API_KEY."
     args_schema: type[BaseModel] = CreateWebhookInput
 
     def _run(self, url: str, events: str, min_sol: float | None = None) -> str:
@@ -125,7 +129,7 @@ class ListWebhooksInput(BaseModel):
 
 class MadeOnSolListWebhooks(BaseTool):
     name: str = "madeonsol_list_webhooks"
-    description: str = "List all your registered MadeOnSol webhooks. Requires RAPIDAPI_KEY."
+    description: str = "List all your registered MadeOnSol webhooks. Requires MADEONSOL_API_KEY."
     args_schema: type[BaseModel] = ListWebhooksInput
 
     def _run(self) -> str:
@@ -139,11 +143,107 @@ class StreamTokenInput(BaseModel):
 
 class MadeOnSolStreamToken(BaseTool):
     name: str = "madeonsol_stream_token"
-    description: str = "Get a 24h WebSocket streaming token for real-time event streaming from MadeOnSol. Requires RAPIDAPI_KEY."
+    description: str = "Get a 24h WebSocket streaming token for real-time event streaming from MadeOnSol. Requires MADEONSOL_API_KEY."
     args_schema: type[BaseModel] = StreamTokenInput
 
     def _run(self) -> str:
         data = _rest_client().get_stream_token()
+        return json.dumps(data, indent=2)
+
+
+class PriceAlertCreateInput(BaseModel):
+    token_mint: str = Field(description="Solana mint address (base58)")
+    drop_pct: float = Field(description="Drop % threshold (0.01-99.99). Alert fires when MC drops below baseline × (1 − drop_pct/100).")
+    recovery_pct: float | None = Field(default=None, description="Recovery % (0.01-1000). After dip fires, re-fires on recovery. Optional.")
+    name: str | None = Field(default=None, description="Optional label")
+
+
+class MadeOnSolPriceAlertCreate(BaseTool):
+    name: str = "madeonsol_price_alert_create"
+    description: str = "Create a price alert that fires when a token's MC drops by a specified %. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    args_schema: type[BaseModel] = PriceAlertCreateInput
+
+    def _run(self, token_mint: str, drop_pct: float, recovery_pct: float | None = None, name: str | None = None) -> str:
+        data = _rest_client().price_alerts_create(
+            token_mint=token_mint, drop_pct=drop_pct,
+            recovery_pct=recovery_pct, name=name,
+        )
+        return json.dumps(data, indent=2)
+
+
+class PriceAlertsListInput(BaseModel):
+    pass
+
+
+class MadeOnSolPriceAlertsList(BaseTool):
+    name: str = "madeonsol_price_alerts_list"
+    description: str = "List your price alerts. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    args_schema: type[BaseModel] = PriceAlertsListInput
+
+    def _run(self) -> str:
+        data = _rest_client().price_alerts_list()
+        return json.dumps(data, indent=2)
+
+
+class PriceAlertEventsInput(BaseModel):
+    alert_id: int | None = Field(default=None, description="Filter to a specific alert")
+    event_type: str | None = Field(default=None, description="'dip' or 'recovery'")
+    limit: int | None = Field(default=None, description="Max events to return")
+
+
+class MadeOnSolPriceAlertEvents(BaseTool):
+    name: str = "madeonsol_price_alert_events"
+    description: str = "Fired price alert event history (30-day retention). Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    args_schema: type[BaseModel] = PriceAlertEventsInput
+
+    def _run(self, alert_id: int | None = None, event_type: str | None = None, limit: int | None = None) -> str:
+        data = _rest_client().price_alerts_events(
+            alert_id=alert_id, event_type=event_type, limit=limit,
+        )
+        return json.dumps(data, indent=2)
+
+
+class ScoutLeaderboardInput(BaseModel):
+    limit: int | None = Field(default=None, description="Max entries to return")
+    scout_tier: str | None = Field(default=None, description="Filter: S, A, B, or C")
+    sort: str | None = Field(default=None, description="Sort: swarm_3plus_pct, n_first_touches_30d, swarm_5plus_pct, scout_score")
+
+
+class MadeOnSolScoutLeaderboard(BaseTool):
+    name: str = "madeonsol_scout_leaderboard"
+    description: str = "Scout leaderboard — top KOLs ranked by scout score and swarm attraction rate. ULTRA only."
+    args_schema: type[BaseModel] = ScoutLeaderboardInput
+
+    def _run(self, limit: int | None = None, scout_tier: str | None = None, sort: str | None = None) -> str:
+        data = _rest_client().scout_leaderboard(limit=limit, scout_tier=scout_tier, sort=sort)
+        return json.dumps(data, indent=2)
+
+
+class KolConsensusInput(BaseModel):
+    mint: str = Field(description="Token mint address (base58)")
+
+
+class MadeOnSolKolConsensus(BaseTool):
+    name: str = "madeonsol_kol_consensus"
+    description: str = "KOL consensus on a token: buyers/sellers, exit rate, net flow, median entry MC. ULTRA gets wallet arrays."
+    args_schema: type[BaseModel] = KolConsensusInput
+
+    def _run(self, mint: str) -> str:
+        data = _rest_client().kol_consensus(mint)
+        return json.dumps(data, indent=2)
+
+
+class PeakHistoryInput(BaseModel):
+    mint: str = Field(description="Token mint address (base58)")
+
+
+class MadeOnSolPeakHistory(BaseTool):
+    name: str = "madeonsol_peak_history"
+    description: str = "Peak MC history: ATH, decline from peak %, MC at bond and at 1h/6h/24h/7d after bond."
+    args_schema: type[BaseModel] = PeakHistoryInput
+
+    def _run(self, mint: str) -> str:
+        data = _rest_client().peak_history(mint)
         return json.dumps(data, indent=2)
 
 
@@ -155,4 +255,10 @@ ALL_TOOLS = [
     MadeOnSolCreateWebhook(),
     MadeOnSolListWebhooks(),
     MadeOnSolStreamToken(),
+    MadeOnSolPriceAlertCreate(),
+    MadeOnSolPriceAlertsList(),
+    MadeOnSolPriceAlertEvents(),
+    MadeOnSolScoutLeaderboard(),
+    MadeOnSolKolConsensus(),
+    MadeOnSolPeakHistory(),
 ]

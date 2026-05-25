@@ -201,6 +201,54 @@ CRUD: `first_touch_subscriptions_list()`, `first_touch_subscriptions_get(id)`, `
 
 > **Don't poll — push.** Median lead time before the second KOL is **12 seconds**. WebSocket channel: `kol:first_touches` (PRO+).
 
+### Price Alerts *(new in 1.9)*
+
+CRUD for token dip/recovery price alerts. Fires via WebSocket (`price:alerts` channel) and/or HMAC-signed webhook when a token's market cap crosses your threshold. PRO=5 rules, ULTRA=25.
+
+```python
+res = client.rest.price_alerts_create(
+    name="SOL dip buy",
+    token_mint="So11111111111111111111111111111111111111112",
+    condition="below",          # "below" | "above"
+    threshold_mc_usd=5_000_000_000,
+    cooldown_min=120,
+    delivery_mode="both",
+    webhook_url="https://you.com/hooks/price",
+)
+# store res["webhook_secret"] — shown ONCE
+```
+
+`price_alerts_list()`, `price_alerts_get(id)`, `price_alerts_update(id, **fields)`, `price_alerts_delete(id)`.
+
+LangChain: `MadeOnSolPriceAlertsListTool`, `MadeOnSolPriceAlertsCreateTool`. CrewAI: same names via `ALL_TOOLS`.
+
+### Scout Leaderboard & KOL Consensus *(new in 1.9)*
+
+| Method | Tier | Description |
+|---|---|---|
+| `rest.scout_leaderboard(period=, limit=)` | PRO+ | Top scout-tier KOLs ranked by first-touch follow-on rate, win rate, and ROI |
+| `rest.kol_consensus(min_kols=, period=)` | PRO+ | Tokens with the strongest KOL agreement signal — weighted by scout score and recent PnL |
+| `rest.peak_history(mint)` | PRO+ | Historical peak-density windows for a token — every coordination spike with KOL breakdown |
+| `rest.coordination_history(period=, limit=)` | PRO+ | Global coordination event log with token, KOL count, score, and outcome |
+
+```python
+leaders = client.rest.scout_leaderboard(period="30d", limit=25)
+consensus = client.rest.kol_consensus(min_kols=5, period="24h")
+```
+
+### Wallet Derived Stats *(new in 1.9)*
+
+`wallet_stats(address)` now includes a `stats` object with derived fields computed from the 90-day trade window:
+
+```python
+data = client.rest.wallet_stats("WALLET_ADDRESS")
+s = data["stats"]
+# s["win_rate"]      — fraction 0-1, tokens sold above cost basis
+# s["roi"]           — aggregate return on invested SOL
+# s["verdict"]       — "strong" | "profitable" | "neutral" | "losing"
+# s["biggest_miss"]  — token with the highest post-exit gain the wallet missed
+```
+
 ### Copy-Trade Rules (PRO/ULTRA)
 
 Server-side rules that fire signals when one of your watched source wallets trades. Delivered via webhook (HMAC-signed) and/or WebSocket. PRO=3 rules × 5 source wallets each; ULTRA=20 × 50.
