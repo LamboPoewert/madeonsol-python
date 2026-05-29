@@ -149,6 +149,24 @@ Scored from 47,000+ early-buyer records (wallets seen in the first 20 buyers of 
 | `rest.token_cap_table(mint)` | PRO+ | First non-deployer early buyers, enriched with PnL/KOL/bot flags. PRO=10, ULTRA=20 |
 | `rest.token_buyer_quality(mint)` | All | 0–100 buyer-quality score + full breakdown (5-min cached) |
 
+### Deshred Sniper Alerts *(new in 1.10)*
+
+The fastest path to a new pump.fun launch. Deploys are reconstructed from shred-level (**deshred**) data and surface **~500ms before the chain confirms them**. **PRO** sees elite + good deployers; **ULTRA** sees every tier and can keep a custom deployer watchlist. For live push use the `sniper:deploy` webhook, the `sniper:deploys` WebSocket channel, or `/alert sniper` in Telegram.
+
+| Method | Tier | Description |
+|---|---|---|
+| `rest.sniper_recent(limit=, deployer_tier=, min_bond_rate=, since=, watchlist=)` | PRO+ | Deshred deploy feed, newest first. PRO=elite/good, ULTRA=all tiers. `watchlist=True` (ULTRA) narrows to your watchlist |
+| `rest.sniper_by_deployer(wallet, limit=)` | ULTRA | Deshred deploys for one deployer |
+| `rest.sniper_watchlist()` | ULTRA | List your custom deployer watchlist (max 50) |
+| `rest.sniper_watchlist_add(wallet=/wallets=, label=)` | ULTRA | Add one or many deployers |
+| `rest.sniper_watchlist_remove(wallet)` | ULTRA | Remove a deployer |
+
+```python
+feed = client.rest.sniper_recent(limit=50, min_bond_rate=0.5)
+client.rest.sniper_watchlist_add(wallets=["7dEx...4pQ8", "9aBc...2zZ1"], label="alpha devs")
+tracked = client.rest.sniper_recent(watchlist=True)  # ULTRA — only your tracked deployers
+```
+
 ### KOL Coordination Alerts (v1.1 — push signals)
 
 Real-time push alerts when a cluster of KOLs co-buys the same token. Fires within ~1s of the triggering trade (pg_notify push, not polling). Delivered via WebSocket (`kol:coordination` channel, user-scoped) and/or HMAC-signed webhook. PRO=5 rules, ULTRA=20.

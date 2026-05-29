@@ -37,7 +37,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.10.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -537,6 +537,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            "User-Agent": "madeonsol-x402-python/1.10.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -609,6 +610,68 @@ class MadeOnSolREST:
     def test_webhook(self, webhook_id: int) -> dict[str, Any]:
         """Send a test payload to verify a webhook URL."""
         return self._request("POST", "/webhooks/test", {"webhook_id": webhook_id})
+
+    # ── Sniper: deshred pre-confirm pump.fun deploys (PRO + ULTRA) ──
+    # Reconstructed from shred-level ("deshred") data, deploys surface ~500ms
+    # before the chain confirms them. PRO sees elite/good deployers; ULTRA sees
+    # every tier and can keep a custom deployer watchlist.
+
+    def sniper_recent(
+        self,
+        *,
+        since: str | None = None,
+        deployer_tier: str | None = None,
+        min_bond_rate: float | None = None,
+        limit: int | None = None,
+        watchlist: bool | None = None,
+    ) -> dict[str, Any]:
+        """Deshred deploy feed — pump.fun launches ~500ms before they confirm.
+
+        PRO sees elite/good deployers; ULTRA sees all tiers. Pass watchlist=True
+        (ULTRA) to narrow to your custom deployer watchlist (any tier).
+        """
+        params: dict[str, Any] = {}
+        if since:
+            params["since"] = since
+        if deployer_tier:
+            params["deployer_tier"] = deployer_tier
+        if min_bond_rate is not None:
+            params["min_bond_rate"] = min_bond_rate
+        if limit is not None:
+            params["limit"] = limit
+        if watchlist:
+            params["watchlist"] = "true"
+        return self._request("GET", "/sniper/recent", params=params or None)
+
+    def sniper_by_deployer(self, wallet: str, *, limit: int | None = None) -> dict[str, Any]:
+        """Deshred deploys filtered to a single deployer wallet. ULTRA only."""
+        params = {"limit": limit} if limit is not None else None
+        return self._request("GET", f"/sniper/by-deployer/{wallet}", params=params)
+
+    def sniper_watchlist(self) -> dict[str, Any]:
+        """List your custom sniper deployer watchlist (ULTRA, max 50)."""
+        return self._request("GET", "/sniper/watchlist")
+
+    def sniper_watchlist_add(
+        self,
+        *,
+        wallet: str | None = None,
+        wallets: list[str] | None = None,
+        label: str | None = None,
+    ) -> dict[str, Any]:
+        """Add one (wallet) or many (wallets) deployers to your watchlist. ULTRA only."""
+        body: dict[str, Any] = {}
+        if wallet:
+            body["wallet"] = wallet
+        if wallets:
+            body["wallets"] = wallets
+        if label:
+            body["label"] = label
+        return self._request("POST", "/sniper/watchlist", body)
+
+    def sniper_watchlist_remove(self, wallet: str) -> dict[str, Any]:
+        """Remove a deployer from your watchlist. ULTRA only."""
+        return self._request("DELETE", f"/sniper/watchlist/{wallet}")
 
     # ── KOL/deployer detail ──
 
