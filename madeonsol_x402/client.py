@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:
+    from .stream import MadeOnSolStream
 
 BASE_URL = "https://madeonsol.com"
 
@@ -37,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.10.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.11.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -537,7 +540,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.10.0",
+            "User-Agent": "madeonsol-x402-python/1.11.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -692,6 +695,26 @@ class MadeOnSolREST:
     def get_stream_token(self) -> dict[str, Any]:
         """Generate a 24h WebSocket streaming token."""
         return self._request("POST", "/stream/token")
+
+    def stream(self, *, auto_reconnect: bool = True, max_backoff: float = 30.0) -> "MadeOnSolStream":
+        """Open a managed real-time WebSocket stream — auto-reconnect, 24h-token
+        refresh, and typed callbacks. Requires the optional ``websockets`` extra::
+
+            pip install "madeonsol-x402[stream]"
+
+        Example::
+
+            stream = client.stream()
+            stream.on("kol:trade", lambda d: print(d["token_symbol"]))
+            stream.subscribe(["kol:trades"])
+            await stream.run()
+        """
+        from .stream import MadeOnSolStream
+
+        async def _token() -> dict[str, Any]:
+            return await asyncio.to_thread(self.get_stream_token)
+
+        return MadeOnSolStream(_token, auto_reconnect=auto_reconnect, max_backoff=max_backoff)
 
     # ── Account (v1.7) ──
 

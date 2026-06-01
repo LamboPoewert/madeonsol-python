@@ -91,6 +91,31 @@ print(client.rest.last_rate_limit)
 # {'limit': 100, 'remaining': 92, 'reset': 1714000000, 'request_id': 'rid_abc123'}
 ```
 
+## Real-time streaming *(new in 1.11)*
+
+Managed WebSocket stream — auto-reconnect, 24h-token refresh, and typed callbacks handled for you. Needs the `stream` extra: `pip install "madeonsol-x402[stream]"`.
+
+```python
+import asyncio
+from madeonsol_x402 import MadeOnSolREST
+
+client = MadeOnSolREST(api_key="msk_...")
+
+async def main():
+    stream = client.stream()
+
+    @stream.on("kol:trade")
+    async def on_trade(data, evt):
+        print(data["token_symbol"], data["action"])
+
+    stream.subscribe(["kol:trades", "deployer:alerts"])
+    await stream.run()   # blocks; manages connection + reconnects
+
+asyncio.run(main())
+```
+
+Channels: `kol:trades`, `kol:coordination`, `kol:first_touches`, `deployer:alerts`, `wallet_tracker:events`, `copytrade:signals`, `price_alert:events`, `sniper:deploys`. Lifecycle events: `open`, `close`, `reconnect`, `heartbeat`, `error`.
+
 ## LangChain
 
 ```python
