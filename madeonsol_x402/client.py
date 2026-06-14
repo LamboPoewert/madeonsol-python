@@ -40,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.11.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.13.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -540,7 +540,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.11.0",
+            "User-Agent": "madeonsol-x402-python/1.13.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -742,6 +742,9 @@ class MadeOnSolREST:
         max_mev_share_pct: float | None = None,
         mc_change_1h_min_pct: float | None = None,
         mc_change_1h_max_pct: float | None = None,
+        min_liq_mc_ratio: float | None = None,
+        max_liq_mc_ratio: float | None = None,
+        deployer_tier: str | None = None,
         sort: str | None = None,
         limit: int | None = None,
         offset: int | None = None,
@@ -760,6 +763,12 @@ class MadeOnSolREST:
 
         Primary DEX values: ``pumpfun`` | ``pumpswap`` | ``raydium`` |
         ``meteora`` | ``orca`` | ``raydium_clmm``.
+
+        Args:
+            min_liq_mc_ratio: v1.13 — minimum liquidity-to-MC ratio (0-1).
+            max_liq_mc_ratio: v1.13 — maximum liquidity-to-MC ratio (0-1).
+            deployer_tier: v1.13 — filter by deployer tier: 'elite', 'good',
+                'moderate', 'rising', 'cold', or 'unranked'.
         """
         params: dict[str, Any] = {}
         for key, val in {
@@ -775,6 +784,9 @@ class MadeOnSolREST:
             "max_mev_share_pct": max_mev_share_pct,
             "mc_change_1h_min_pct": mc_change_1h_min_pct,
             "mc_change_1h_max_pct": mc_change_1h_max_pct,
+            "min_liq_mc_ratio": min_liq_mc_ratio,
+            "max_liq_mc_ratio": max_liq_mc_ratio,
+            "deployer_tier": deployer_tier,
             "sort": sort,
             "limit": limit,
             "offset": offset,
