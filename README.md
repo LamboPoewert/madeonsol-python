@@ -12,6 +12,8 @@ Python SDK for the [MadeOnSol](https://madeonsol.com) Solana KOL intelligence AP
 
 > Real-time Solana trading intelligence: track 1,069 KOL wallets with <3s latency, score 23,000+ Pump.fun deployers, surface deshred deploy signals ~500ms before on-chain confirmation, score 1M+ early-buyer wallets (incl. dump-cluster detection), push every pump.fun graduation, and stream every DEX trade. Free tier: 200 requests/day at [madeonsol.com/pricing](https://madeonsol.com/pricing) — no credit card required.
 
+> **New in 1.14.0** — **Token risk score.** `rest.token_risk(mint)` returns a transparent 0–100 rug-risk/safety score (higher = riskier) with a `band` (`'safe'` | `'caution'` | `'danger'`), an explainable `factors` array, and the raw `inputs` (mint/freeze authority, liquidity, liq-to-MC ratio, transfer fee, launch cohort, deployer bond rate, KOL signal, blacklist). PRO/ULTRA only.
+>
 > **New in 1.13.0** — `rest.tokens_list()` gains three new filter params: `min_liq_mc_ratio`, `max_liq_mc_ratio`, and `deployer_tier` (`'elite'` | `'good'` | `'moderate'` | `'rising'` | `'cold'` | `'unranked'`). Response items now include `liquidity_to_mc_ratio` and `deployer_tier`. KOL leaderboard entries now include `median_hold_minutes_30d` and `percentile_early_entry_30d`. `/token/{mint}` and `/token/batch` responses now include `liquidity_to_mc_ratio`, `launch_cohort_sol`, and `launch_cohort_size`.
 >
 > **New in 1.12.1** — Deployer alerts/profiles now carry `runner_rate` + `labeled_tokens` (fraction of a deployer's labeled tokens that ran vs dumped, gate on `labeled_tokens` >= 3) plus `avg_time_to_bond_minutes`.
@@ -185,6 +187,7 @@ Scored from 1M+ early-buyer records (wallets seen in the first 20 buyers of Pump
 |---|---|---|
 | `rest.token_cap_table(mint)` | PRO+ | First non-deployer early buyers, enriched with PnL/KOL/bot flags. PRO=10, ULTRA=20 |
 | `rest.token_buyer_quality(mint)` | All | 0–100 buyer-quality score + full breakdown (5-min cached) |
+| `rest.token_risk(mint)` | PRO+ | Transparent 0–100 rug-risk/safety score with `band`, explainable `factors`, and raw `inputs` |
 
 ### Deshred Sniper Alerts *(new in 1.10)*
 

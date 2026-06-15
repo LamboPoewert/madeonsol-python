@@ -26,6 +26,7 @@ CHANNELS = (
     "copytrade:signals",
     "price_alert:events",
     "sniper:deploys",
+    "token:graduations",
 )
 
 # Event names delivered on those channels.
@@ -40,6 +41,7 @@ EVENT_NAMES = (
     "price_alert:dip",
     "price_alert:recovery",
     "sniper:deploy",
+    "token:graduation",
 )
 
 Handler = Callable[..., Any | Awaitable[Any]]

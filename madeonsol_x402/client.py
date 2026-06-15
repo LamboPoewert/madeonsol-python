@@ -40,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.13.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.14.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -540,7 +540,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.13.0",
+            "User-Agent": "madeonsol-x402-python/1.14.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -855,6 +855,20 @@ class MadeOnSolREST:
         Cached for 5 minutes per mint.
         """
         return self._request("GET", f"/tokens/{mint}/buyer-quality")
+
+    def token_risk(self, mint: str) -> dict[str, Any]:
+        """Transparent 0–100 token rug-risk/safety score (higher = riskier).
+
+        Returns ``risk_score``, a ``band`` ('safe' | 'caution' | 'danger'), an
+        explainable ``factors`` array, and the raw ``inputs`` (mint/freeze
+        authority, liquidity, liq-to-MC ratio, transfer fee, launch cohort,
+        deployer bond rate, KOL signal, blacklist). PRO/ULTRA only — BASIC
+        callers receive HTTP 403.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._request("GET", f"/tokens/{mint}/risk")
 
     # ── Copy-Trade (PRO/ULTRA) ──
 
