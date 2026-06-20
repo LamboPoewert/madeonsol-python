@@ -4,4 +4,4 @@ from .client import MadeOnSolClient, MadeOnSolREST
 from .stream import MadeOnSolStream
 
 __all__ = ["MadeOnSolClient", "MadeOnSolREST", "MadeOnSolStream"]
-__version__ = "1.12.1"
+__version__ = "1.16.0"

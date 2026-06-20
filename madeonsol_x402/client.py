@@ -40,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.14.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.16.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -499,6 +499,61 @@ class MadeOnSolClient:
         """
         return self._get_sync(f"/api/x402/tokens/{mint}/peak-history")
 
+    def token_risk(self, mint: str) -> dict[str, Any]:
+        """Transparent 0–100 token safety/rug-risk score with a per-factor
+        breakdown (liquidity, mint/freeze authority, LP status, holder
+        concentration) — the "is this safe to buy?" decision call.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._get_sync(f"/api/x402/tokens/{mint}/risk")
+
+    def token_buyer_quality(self, mint: str) -> dict[str, Any]:
+        """Early-buyer quality score (dump-cluster exposure, recycled-wallet
+        rate, smart-money presence) with the live, out-of-sample Signal
+        Scorecard efficacy stat attached.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._get_sync(f"/api/x402/tokens/{mint}/buyer-quality")
+
+    def token(self, mint: str) -> dict[str, Any]:
+        """Live token snapshot — price, market cap, FDV, liquidity, and DEX metadata.
+
+        Returns ``{ "token": {...} }`` with ``price_usd``/``price_sol``,
+        ``market_cap``, ``fdv_usd``, ``liquidity_usd``, ``liquidity_to_mc_ratio``,
+        ``primary_dex``, ``is_token_2022``, ``transfer_fee_bps``, and a
+        ``top_buyers`` array of ``{name, sol_amount}``.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._get_sync(f"/api/x402/token/{mint}")
+
+    def signal_performance(self, name: str, *, history: bool = False) -> dict[str, Any]:
+        """Signal Scorecard — out-of-sample reliability for a named signal.
+
+        Returns the signal's ``hit_rate``, ``base_rate``, ``lift``, ``sample_n``,
+        ``window_days``, and ``test_from``/``test_to`` reliability buckets, plus
+        ``signal``, ``metric_type``, ``outcome``, ``methodology``, and ``as_of``.
+        Pass ``history=True`` to additionally get a per-day series.
+
+        Args:
+            name: One of 'dump_cluster_count', 'runner_rate',
+                'recycled_early_buyer_count', or 'coordination_count'.
+            history: When True, include the per-day performance series.
+        """
+        params = {"history": "true"} if history else None
+        return self._get_sync(f"/api/x402/signals/{name}/performance", params)
+
+    def signals(self) -> dict[str, Any]:
+        """Free — signal catalog: name, description, and each signal's methodology
+        and ``performance_endpoint``, plus a ``docs`` link.
+        """
+        return self._get_sync("/api/x402/signals")
+
     def discovery(self) -> dict[str, Any]:
         """Free — list all endpoints and prices."""
         resp = httpx.get(f"{self.base_url}/api/x402")
@@ -540,7 +595,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.14.0",
+            "User-Agent": "madeonsol-x402-python/1.16.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -869,6 +924,43 @@ class MadeOnSolREST:
             mint: Token mint address.
         """
         return self._request("GET", f"/tokens/{mint}/risk")
+
+    def token_candles(
+        self,
+        mint: str,
+        *,
+        tf: str = "1h",
+        limit: int = 200,
+        from_: str | None = None,
+        to: str | None = None,
+    ) -> dict[str, Any]:
+        """1-minute-derived OHLCV candles for a token, aggregated to a timeframe.
+
+        Returns ``mint``, ``timeframe``, ``from``, ``to``, ``count``,
+        ``net_flow_included``, and a ``candles`` array. Each candle has ``t``
+        (bucket start), ``open``, ``high``, ``low``, ``close``, ``volume_usd``,
+        ``trades``, and ``market_cap_usd``. ULTRA additionally exposes per-candle
+        net-flow fields: ``buy_volume_usd``, ``sell_volume_usd``,
+        ``net_volume_usd``, ``buy_count``, ``sell_count``, ``volume_mev_usd``,
+        ``open_liquidity_usd``, ``close_liquidity_usd``, ``high_mc_usd``, and
+        ``low_mc_usd``. PRO returns OHLCV over the last 30 days; ULTRA adds the
+        net-flow breakdown and full history.
+
+        Args:
+            mint: Token mint address.
+            tf: Timeframe bucket — '1m', '5m', '15m', '1h', '4h', or '1d'
+                (default '1h').
+            limit: Number of candles to return, 1–1000 (default 200).
+            from_: Optional ISO8601 start timestamp (maps to the ``from`` query
+                param; ``from`` is reserved in Python).
+            to: Optional ISO8601 end timestamp.
+        """
+        params: dict[str, Any] = {"tf": tf, "limit": limit}
+        if from_ is not None:
+            params["from"] = from_
+        if to is not None:
+            params["to"] = to
+        return self._request("GET", f"/tokens/{mint}/candles", params=params)
 
     # ── Copy-Trade (PRO/ULTRA) ──
 

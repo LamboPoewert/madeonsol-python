@@ -12,6 +12,10 @@ Python SDK for the [MadeOnSol](https://madeonsol.com) Solana KOL intelligence AP
 
 > Real-time Solana trading intelligence: track 1,069 KOL wallets with <3s latency, score 23,000+ Pump.fun deployers, surface deshred deploy signals ~500ms before on-chain confirmation, score 1M+ early-buyer wallets (incl. dump-cluster detection), push every pump.fun graduation, and stream every DEX trade. Free tier: 200 requests/day at [madeonsol.com/pricing](https://madeonsol.com/pricing) — no credit card required.
 
+> **New in 1.16.0** — **Live token snapshot + Signal Scorecard (keyless x402).** `client.token(mint)` returns a live `{ "token": {...} }` snapshot (`price_usd`/`price_sol`, `market_cap`, `fdv_usd`, `liquidity_usd`, `liquidity_to_mc_ratio`, `primary_dex`, `is_token_2022`, `transfer_fee_bps`, `top_buyers=[{name, sol_amount}]`). `client.signal_performance(name, history=False)` returns out-of-sample reliability for a named signal (`hit_rate`, `base_rate`, `lift`, `sample_n`, `window_days`, `test_from`/`test_to`, plus `metric_type`, `outcome`, `methodology`, `as_of`; per-day series when `history=True`) — valid names: `dump_cluster_count`, `runner_rate`, `recycled_early_buyer_count`, `coordination_count`. `client.signals()` (free) lists the signal catalog.
+>
+> **New in 1.15.0** — **Token OHLCV candles.** `rest.token_candles(mint, tf="1h", limit=200, from_=None, to=None)` returns 1-minute-derived OHLCV candles aggregated to a timeframe (`'1m'` | `'5m'` | `'15m'` | `'1h'` | `'4h'` | `'1d'`). Each candle has `t`, `open`, `high`, `low`, `close`, `volume_usd`, `trades`, and `market_cap_usd`. PRO returns OHLCV over the last 30 days; ULTRA adds per-candle net-flow fields (`buy_volume_usd`, `sell_volume_usd`, `net_volume_usd`, `buy_count`, `sell_count`, `volume_mev_usd`, `open_liquidity_usd`, `close_liquidity_usd`, `high_mc_usd`, `low_mc_usd`) and full history.
+>
 > **New in 1.14.0** — **Token risk score.** `rest.token_risk(mint)` returns a transparent 0–100 rug-risk/safety score (higher = riskier) with a `band` (`'safe'` | `'caution'` | `'danger'`), an explainable `factors` array, and the raw `inputs` (mint/freeze authority, liquidity, liq-to-MC ratio, transfer fee, launch cohort, deployer bond rate, KOL signal, blacklist). PRO/ULTRA only.
 >
 > **New in 1.13.0** — `rest.tokens_list()` gains three new filter params: `min_liq_mc_ratio`, `max_liq_mc_ratio`, and `deployer_tier` (`'elite'` | `'good'` | `'moderate'` | `'rising'` | `'cold'` | `'unranked'`). Response items now include `liquidity_to_mc_ratio` and `deployer_tier`. KOL leaderboard entries now include `median_hold_minutes_30d` and `percentile_early_entry_30d`. `/token/{mint}` and `/token/batch` responses now include `liquidity_to_mc_ratio`, `launch_cohort_sol`, and `launch_cohort_size`.
@@ -161,6 +165,9 @@ agent = Agent(role="Solana Analyst", tools=ALL_TOOLS)
 | `wallet_pnl(address)` | **New 1.8** · FIFO cost-basis PnL: realized + unrealized, profit factor, drawdown, daily curve, closed + open positions. $0.02 |
 | `wallet_positions(address)` | **New 1.8** · Open positions with live unrealized from market-cap tracker. Shares /pnl cache. $0.01 |
 | `wallet_trades(address, ...)` | **New 1.8** · Cursor-paginated raw trades with action / token / since-until filters. $0.005 |
+| `token(mint)` | **New 1.16** · Live token snapshot — price_usd/price_sol, market_cap, fdv_usd, liquidity_usd, liquidity_to_mc_ratio, primary_dex, is_token_2022, transfer_fee_bps, top_buyers |
+| `signal_performance(name, history=False)` | **New 1.16** · Signal Scorecard — out-of-sample hit_rate/base_rate/lift/sample_n per signal (dump_cluster_count, runner_rate, recycled_early_buyer_count, coordination_count) |
+| `signals()` | **New 1.16** · Free — signal catalog with per-signal methodology and performance_endpoint |
 | `discovery()` | Free — list all endpoints and prices |
 
 ### REST API — KOL/deployer detail
@@ -188,6 +195,7 @@ Scored from 1M+ early-buyer records (wallets seen in the first 20 buyers of Pump
 | `rest.token_cap_table(mint)` | PRO+ | First non-deployer early buyers, enriched with PnL/KOL/bot flags. PRO=10, ULTRA=20 |
 | `rest.token_buyer_quality(mint)` | All | 0–100 buyer-quality score + full breakdown (5-min cached) |
 | `rest.token_risk(mint)` | PRO+ | Transparent 0–100 rug-risk/safety score with `band`, explainable `factors`, and raw `inputs` |
+| `rest.token_candles(mint, tf, limit, from_, to)` | PRO+ | 1-minute-derived OHLCV candles by timeframe. PRO=OHLCV/30d, ULTRA=+net flow/full history |
 
 ### Deshred Sniper Alerts *(new in 1.10)*
 
