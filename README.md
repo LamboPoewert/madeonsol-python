@@ -12,6 +12,8 @@ Python SDK for the [MadeOnSol](https://madeonsol.com) Solana KOL intelligence AP
 
 > Real-time Solana trading intelligence: track 1,069 KOL wallets with <3s latency, score 23,000+ Pump.fun deployers, surface deshred deploy signals ~500ms before on-chain confirmation, score 1M+ early-buyer wallets (incl. dump-cluster detection), push every pump.fun graduation, and stream every DEX trade. Free tier: 200 requests/day at [madeonsol.com/pricing](https://madeonsol.com/pricing) — no credit card required.
 
+> **New in 1.17.0** — **Token money-flow.** `client.token_flow(mint, window="1h")` (and the async `await client.token_flow_async(mint, window="1h")`) aggregates buy/sell pressure for a token over a rolling `'1h'` or `'24h'` window. Returns `mint`, `window`, `from`, `unique_wallets`, `unique_buyers`, `unique_sellers`, `buy_count`, `sell_count`, `total_trades`, `buy_sol`, `sell_sol`, `net_sol`, and `trades_per_wallet`. PRO+ (keyed). Also: `deployer_alerts()` items now carry `deployer_sol_balance` (float | None) — the deployer wallet's SOL balance at alert time (`None` for historical rows).
+>
 > **New in 1.16.0** — **Live token snapshot + Signal Scorecard (keyless x402).** `client.token(mint)` returns a live `{ "token": {...} }` snapshot (`price_usd`/`price_sol`, `market_cap`, `fdv_usd`, `liquidity_usd`, `liquidity_to_mc_ratio`, `primary_dex`, `is_token_2022`, `transfer_fee_bps`, `top_buyers=[{name, sol_amount}]`). `client.signal_performance(name, history=False)` returns out-of-sample reliability for a named signal (`hit_rate`, `base_rate`, `lift`, `sample_n`, `window_days`, `test_from`/`test_to`, plus `metric_type`, `outcome`, `methodology`, `as_of`; per-day series when `history=True`) — valid names: `dump_cluster_count`, `runner_rate`, `recycled_early_buyer_count`, `coordination_count`. `client.signals()` (free) lists the signal catalog.
 >
 > **New in 1.15.0** — **Token OHLCV candles.** `rest.token_candles(mint, tf="1h", limit=200, from_=None, to=None)` returns 1-minute-derived OHLCV candles aggregated to a timeframe (`'1m'` | `'5m'` | `'15m'` | `'1h'` | `'4h'` | `'1d'`). Each candle has `t`, `open`, `high`, `low`, `close`, `volume_usd`, `trades`, and `market_cap_usd`. PRO returns OHLCV over the last 30 days; ULTRA adds per-candle net-flow fields (`buy_volume_usd`, `sell_volume_usd`, `net_volume_usd`, `buy_count`, `sell_count`, `volume_mev_usd`, `open_liquidity_usd`, `close_liquidity_usd`, `high_mc_usd`, `low_mc_usd`) and full history.
@@ -88,8 +90,14 @@ signals = client.kol_coordination(period="24h", min_kols=3)
 leaders = client.kol_leaderboard(period="7d")  # today | 7d | 30d | 90d | 180d
 
 # Deployer alerts (all tiers can filter by tier)
+# Each alert carries deployer_sol_balance (float | None) — deployer wallet
+# SOL balance at alert time (None for historical rows).
 alerts = client.deployer_alerts(limit=10)
 elite_only = client.deployer_alerts(limit=10, tier="elite")
+
+# Token money-flow over a rolling window (PRO+) — sync
+flow = client.token_flow("So11111111111111111111111111111111111111112", window="1h")
+print(flow["net_sol"], flow["unique_buyers"], flow["unique_sellers"])
 
 # Alpha wallet leaderboard (REST)
 top = client.rest.alpha_leaderboard(period="30d", sort="win_rate")
@@ -102,6 +110,31 @@ events = client.rest.wallet_tracker_trades(limit=50)
 print(client.rest.last_rate_limit)
 # {'limit': 100, 'remaining': 92, 'reset': 1714000000, 'request_id': 'rid_abc123'}
 ```
+
+### Token money-flow *(new in 1.17)*
+
+`token_flow(mint, window="1h")` aggregates buy/sell pressure for a token over a rolling `'1h'` or `'24h'` window. PRO+ (keyed). Both sync and async variants are available:
+
+```python
+import asyncio
+from madeonsol_x402 import MadeOnSolClient
+
+client = MadeOnSolClient(api_key="msk_...")
+mint = "So11111111111111111111111111111111111111112"
+
+# Sync
+flow = client.token_flow(mint, window="1h")
+print(flow["net_sol"], flow["buy_sol"], flow["sell_sol"])
+
+# Async
+async def main():
+    flow = await client.token_flow_async(mint, window="24h")
+    print(flow["unique_wallets"], flow["trades_per_wallet"])
+
+asyncio.run(main())
+```
+
+Response keys: `mint`, `window`, `from`, `unique_wallets`, `unique_buyers`, `unique_sellers`, `buy_count`, `sell_count`, `total_trades`, `buy_sol`, `sell_sol`, `net_sol`, `trades_per_wallet`.
 
 ## Real-time streaming *(new in 1.11)*
 
@@ -168,6 +201,7 @@ agent = Agent(role="Solana Analyst", tools=ALL_TOOLS)
 | `token(mint)` | **New 1.16** · Live token snapshot — price_usd/price_sol, market_cap, fdv_usd, liquidity_usd, liquidity_to_mc_ratio, primary_dex, is_token_2022, transfer_fee_bps, top_buyers |
 | `signal_performance(name, history=False)` | **New 1.16** · Signal Scorecard — out-of-sample hit_rate/base_rate/lift/sample_n per signal (dump_cluster_count, runner_rate, recycled_early_buyer_count, coordination_count) |
 | `signals()` | **New 1.16** · Free — signal catalog with per-signal methodology and performance_endpoint |
+| `token_flow(mint, window="1h")` | **New 1.17** · PRO+ · Token money-flow over a rolling 1h/24h window — unique wallets/buyers/sellers, buy/sell counts + SOL, net SOL flow, trades per wallet. Async: `token_flow_async(mint, window="1h")` |
 | `discovery()` | Free — list all endpoints and prices |
 
 ### REST API — KOL/deployer detail

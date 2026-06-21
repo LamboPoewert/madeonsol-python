@@ -40,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.16.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.17.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -258,6 +258,10 @@ class MadeOnSolClient:
         min_kol_buys: int | None = None,
     ) -> dict[str, Any]:
         """Pump.fun deployer alerts with KOL buy enrichment.
+
+        Each alert item includes ``deployer_sol_balance`` (float | None) — the
+        deployer wallet's SOL balance captured at alert time; ``None`` for
+        historical rows recorded before this field existed.
 
         Args:
             limit: Max alerts to return.
@@ -499,6 +503,28 @@ class MadeOnSolClient:
         """
         return self._get_sync(f"/api/x402/tokens/{mint}/peak-history")
 
+    def token_flow(self, mint: str, *, window: str = "1h") -> dict[str, Any]:
+        """v1.17 — Token money-flow over a rolling window. PRO+ (keyed).
+
+        Aggregates buy/sell pressure for a token across the window into unique
+        wallet/buyer/seller counts, buy/sell trade counts, SOL volume per side,
+        net SOL flow, and trades-per-wallet.
+
+        Returns a dict with keys: ``mint``, ``window``, ``from``,
+        ``unique_wallets``, ``unique_buyers``, ``unique_sellers``,
+        ``buy_count``, ``sell_count``, ``total_trades``, ``buy_sol``,
+        ``sell_sol``, ``net_sol``, ``trades_per_wallet``.
+
+        Args:
+            mint: Token mint address.
+            window: Rolling window — '1h' or '24h' (default '1h').
+        """
+        return self._get_sync(f"/api/x402/tokens/{mint}/flow", {"window": window})
+
+    async def token_flow_async(self, mint: str, *, window: str = "1h") -> dict[str, Any]:
+        """Async variant of :meth:`token_flow`. See that method for details."""
+        return await self._get(f"/api/x402/tokens/{mint}/flow", {"window": window})
+
     def token_risk(self, mint: str) -> dict[str, Any]:
         """Transparent 0–100 token safety/rug-risk score with a per-factor
         breakdown (liquidity, mint/freeze authority, LP status, holder
@@ -595,7 +621,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.16.0",
+            "User-Agent": "madeonsol-x402-python/1.17.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,

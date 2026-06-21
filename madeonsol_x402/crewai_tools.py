@@ -218,6 +218,21 @@ class MadeOnSolScoutLeaderboard(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class TokenFlowInput(BaseModel):
+    mint: str = Field(description="Token mint address (base58)")
+    window: str = Field(default="1h", description="Rolling window: '1h' or '24h'")
+
+
+class MadeOnSolTokenFlow(BaseTool):
+    name: str = "MadeOnSol Token Flow"
+    description: str = "Token money-flow over a rolling window: unique wallets/buyers/sellers, buy/sell counts, buy/sell SOL, net SOL flow, trades per wallet. PRO+."
+    args_schema: type[BaseModel] = TokenFlowInput
+
+    def _run(self, mint: str, window: str = "1h") -> str:
+        data = _client().token_flow(mint, window=window)
+        return json.dumps(data, indent=2)
+
+
 class KolConsensusInput(BaseModel):
     mint: str = Field(description="Token mint address (base58)")
 
@@ -258,6 +273,7 @@ ALL_TOOLS = [
     MadeOnSolPriceAlertsList(),
     MadeOnSolPriceAlertEvents(),
     MadeOnSolScoutLeaderboard(),
+    MadeOnSolTokenFlow(),
     MadeOnSolKolConsensus(),
     MadeOnSolPeakHistory(),
 ]
