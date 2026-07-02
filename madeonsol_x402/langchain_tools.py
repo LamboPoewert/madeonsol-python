@@ -151,6 +151,34 @@ class MadeOnSolStreamToken(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class StreamSessionsInput(BaseModel):
+    pass
+
+
+class MadeOnSolStreamSessions(BaseTool):
+    name: str = "madeonsol_stream_sessions"
+    description: str = "List your live WebSocket sessions (id, service, tier, channels, connected_at, messages_sent) across both stream services. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    args_schema: type[BaseModel] = StreamSessionsInput
+
+    def _run(self) -> str:
+        data = _rest_client().stream_sessions()
+        return json.dumps(data, indent=2)
+
+
+class KillStreamSessionInput(BaseModel):
+    session_id: int = Field(description="The session id (positive integer) from stream_sessions to evict")
+
+
+class MadeOnSolKillStreamSession(BaseTool):
+    name: str = "madeonsol_kill_stream_session"
+    description: str = "Force-terminate one of your live WebSocket sessions and free its connection slot — self-serve fix for a 4002 connection-limit lockout. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    args_schema: type[BaseModel] = KillStreamSessionInput
+
+    def _run(self, session_id: int) -> str:
+        data = _rest_client().kill_stream_session(session_id)
+        return json.dumps(data, indent=2)
+
+
 class PriceAlertCreateInput(BaseModel):
     token_mint: str = Field(description="Solana mint address (base58)")
     drop_pct: float = Field(description="Drop % threshold (0.01-99.99). Alert fires when MC drops below baseline × (1 − drop_pct/100).")
@@ -262,6 +290,37 @@ class MadeOnSolPeakHistory(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class AlmostBondedInput(BaseModel):
+    min_progress: float | None = Field(default=None, description="Lower bound on bonding progress % (default 80)")
+    min_velocity_pct_per_min: float | None = Field(default=None, description="Minimum Δprogress/min; drops tokens without a 5m snapshot")
+    deployer_tier: str | None = Field(default=None, description="Filter by deployer tier: elite/good/moderate/rising/cold/unranked")
+    sort: str | None = Field(default=None, description="velocity_desc (default), progress_desc, or eta_asc")
+    limit: int | None = Field(default=None, description="Page size (1-100, default 50)")
+
+
+class MadeOnSolAlmostBonded(BaseTool):
+    name: str = "madeonsol_almost_bonded"
+    description: str = "Pre-bond pump.fun tokens near graduation, ranked by velocity (Δprogress/min): progress_pct, velocity_pct_per_min, eta_minutes, stalled, deployer_tier. PRO+."
+    args_schema: type[BaseModel] = AlmostBondedInput
+
+    def _run(
+        self,
+        min_progress: float | None = None,
+        min_velocity_pct_per_min: float | None = None,
+        deployer_tier: str | None = None,
+        sort: str | None = None,
+        limit: int | None = None,
+    ) -> str:
+        data = _rest_client().almost_bonded(
+            min_progress=min_progress,
+            min_velocity_pct_per_min=min_velocity_pct_per_min,
+            deployer_tier=deployer_tier,
+            sort=sort,
+            limit=limit,
+        )
+        return json.dumps(data, indent=2)
+
+
 ALL_TOOLS = [
     MadeOnSolKolFeed(),
     MadeOnSolKolCoordination(),
@@ -270,6 +329,8 @@ ALL_TOOLS = [
     MadeOnSolCreateWebhook(),
     MadeOnSolListWebhooks(),
     MadeOnSolStreamToken(),
+    MadeOnSolStreamSessions(),
+    MadeOnSolKillStreamSession(),
     MadeOnSolPriceAlertCreate(),
     MadeOnSolPriceAlertsList(),
     MadeOnSolPriceAlertEvents(),
@@ -277,4 +338,5 @@ ALL_TOOLS = [
     MadeOnSolTokenFlow(),
     MadeOnSolKolConsensus(),
     MadeOnSolPeakHistory(),
+    MadeOnSolAlmostBonded(),
 ]

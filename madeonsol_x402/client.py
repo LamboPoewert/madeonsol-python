@@ -40,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.17.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.19.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -621,7 +621,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.17.0",
+            "User-Agent": "madeonsol-x402-python/1.19.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -797,6 +797,34 @@ class MadeOnSolREST:
 
         return MadeOnSolStream(_token, auto_reconnect=auto_reconnect, max_backoff=max_backoff)
 
+    def stream_sessions(self) -> dict[str, Any]:
+        """List your live WebSocket sessions across both stream services (PRO+).
+
+        Returns ``{"sessions": [...], "count": N}``. Each session carries ``id``
+        (str), ``service`` ('ws-streaming' | 'dex-stream'), ``tier`` (str),
+        ``channels`` (list[str]), ``connected_at`` (ISO 8601), ``remote_ip``
+        (str | None), and ``messages_sent`` (int). Reflects live in-memory state
+        (not the ws_sessions audit table), so every listed slot is evictable via
+        :meth:`kill_stream_session`. PRO/ULTRA only — BASIC callers receive 403.
+        """
+        return self._request("GET", "/stream/sessions")
+
+    def kill_stream_session(self, session_id: int | str) -> dict[str, Any]:
+        """Force-terminate one of your live WebSocket sessions and free its slot.
+
+        Pass a session ``id`` from :meth:`stream_sessions`. Returns
+        ``{"evicted": true, "id": ...}`` on success. Self-serve fix for a 4002
+        connection-limit lockout when a deploy overlap leaves a ghost socket
+        holding your slot. HTTP 404 if no live session with that id exists for
+        your key; HTTP 400 if the id is not a positive integer. Scoping is
+        enforced server-side — a key can only evict its own sessions. PRO/ULTRA
+        only.
+
+        Args:
+            session_id: The session id (positive integer) to evict.
+        """
+        return self._request("DELETE", f"/stream/sessions/{session_id}")
+
     # ── Account (v1.7) ──
 
     def me(self) -> dict[str, Any]:
@@ -840,7 +868,10 @@ class MadeOnSolREST:
         smaller than ``limit``.
 
         Sort values: ``mc_desc`` | ``mc_asc`` | ``last_trade_desc`` |
-        ``liquidity_desc`` | ``cumulative_volume_desc``.
+        ``liquidity_desc`` | ``cumulative_volume_desc`` | ``mc_change_5m_desc`` |
+        ``mc_change_1h_desc`` | ``volume_1h_desc`` | ``trending`` (v1.18 — the
+        last four are DB-native momentum / trending sorts; ``trending`` is a
+        composite recent-volume × positive-momentum rank).
 
         Primary DEX values: ``pumpfun`` | ``pumpswap`` | ``raydium`` |
         ``meteora`` | ``orca`` | ``raydium_clmm``.
@@ -850,6 +881,8 @@ class MadeOnSolREST:
             max_liq_mc_ratio: v1.13 — maximum liquidity-to-MC ratio (0-1).
             deployer_tier: v1.13 — filter by deployer tier: 'elite', 'good',
                 'moderate', 'rising', 'cold', or 'unranked'.
+            sort: v1.18 — adds momentum sorts 'mc_change_5m_desc',
+                'mc_change_1h_desc', 'volume_1h_desc', 'trending'.
         """
         params: dict[str, Any] = {}
         for key, val in {
@@ -876,6 +909,64 @@ class MadeOnSolREST:
                 continue
             params[key] = "true" if val is True else "false" if val is False else val
         return self._request("GET", "/tokens", params=params)
+
+    def almost_bonded(
+        self,
+        *,
+        min_progress: float | None = None,
+        max_progress: float | None = None,
+        min_velocity_pct_per_min: float | None = None,
+        max_age_minutes: float | None = None,
+        deployer_tier: str | None = None,
+        authority_revoked: bool | None = None,
+        min_liq: float | None = None,
+        sort: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """v1.18 — Pre-bond pump.fun tokens approaching graduation (PRO+).
+
+        Ranked by velocity (Δprogress/min) — "95% and accelerating" beats
+        "92% stalled". Each token is enriched with its deployer's reputation
+        tier. ``progress_pct`` comes from on-chain ``real_token_reserves``
+        depletion; ``velocity_pct_per_min`` is ``None`` until a 5m snapshot
+        exists; ``eta_minutes`` is a linear projection.
+
+        Returns a dict with ``tokens`` (each with ``mint``, ``symbol``,
+        ``name``, ``progress_pct``, ``velocity_pct_per_min``, ``eta_minutes``,
+        ``stalled``, ``real_sol_reserves``, ``market_cap_usd``,
+        ``liquidity_usd``, ``authorities_revoked``, ``deployer_tier``,
+        ``age_minutes``), ``filters``, ``returned``, and ``note``.
+
+        Args:
+            min_progress: Lower bound on bonding progress % (default 80).
+            max_progress: Upper bound on bonding progress % (default 99.99 —
+                already-bonded excluded).
+            min_velocity_pct_per_min: Minimum Δprogress/min. Tokens without a
+                5m-ago snapshot are dropped when set.
+            max_age_minutes: Max minutes since deploy (post-filter).
+            deployer_tier: 'elite', 'good', 'moderate', 'rising', 'cold', or
+                'unranked'.
+            authority_revoked: Only tokens with mint+freeze authorities revoked.
+            min_liq: Minimum liquidity USD.
+            sort: 'velocity_desc' (default), 'progress_desc', or 'eta_asc'.
+            limit: Page size (1-100, default 50).
+        """
+        params: dict[str, Any] = {}
+        for key, val in {
+            "min_progress": min_progress,
+            "max_progress": max_progress,
+            "min_velocity_pct_per_min": min_velocity_pct_per_min,
+            "max_age_minutes": max_age_minutes,
+            "deployer_tier": deployer_tier,
+            "authority_revoked": authority_revoked,
+            "min_liq": min_liq,
+            "sort": sort,
+            "limit": limit,
+        }.items():
+            if val is None:
+                continue
+            params[key] = "true" if val is True else "false" if val is False else val
+        return self._request("GET", "/tokens/almost-bonded", params=params)
 
     # ── Alpha Wallet Intelligence ──
 
@@ -950,6 +1041,24 @@ class MadeOnSolREST:
             mint: Token mint address.
         """
         return self._request("GET", f"/tokens/{mint}/risk")
+
+    def tokens_batch_risk(self, mints: list[str]) -> dict[str, Any]:
+        """Bulk token rug-risk/safety scoring — up to 50 mints in one call (PRO+).
+
+        Scores 1–50 base58 mints in a single request that counts as 1 request
+        against quota. Returns ``{"tokens": [...], "count": N}`` where each
+        ``tokens`` entry mirrors the single-mint :meth:`token_risk` shape
+        (``risk_score``, ``band``, explainable ``factors``, raw ``inputs``) plus
+        an ``as_of`` ISO-8601 timestamp. Untracked mints come back as
+        ``{"mint": ..., "error": "not_tracked"}`` (a per-mint failure may instead
+        be ``{"mint": ..., "error": "error"}``) and do NOT fail the batch.
+        ``tokens`` preserves de-duplicated input order; ``count`` is the number of
+        unique mints. PRO/ULTRA only — BASIC callers receive HTTP 403.
+
+        Args:
+            mints: 1–50 base58 token mint addresses. Duplicates are removed.
+        """
+        return self._request("POST", "/tokens/batch/risk", {"mints": mints})
 
     def token_candles(
         self,

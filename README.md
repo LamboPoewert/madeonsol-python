@@ -10,8 +10,12 @@
 
 Python SDK for the [MadeOnSol](https://madeonsol.com) Solana KOL intelligence API.
 
-> Real-time Solana trading intelligence: track 1,069 KOL wallets with <3s latency, score 23,000+ Pump.fun deployers, surface deshred deploy signals ~500ms before on-chain confirmation, score 1M+ early-buyer wallets (incl. dump-cluster detection), push every pump.fun graduation, and stream every DEX trade. Free tier: 200 requests/day at [madeonsol.com/pricing](https://madeonsol.com/pricing) — no credit card required.
+> Real-time Solana trading intelligence: track 1,069 KOL wallets with <3s latency, score 23,000+ Pump.fun deployers, surface deshred deploy signals ~500ms before on-chain confirmation, score 1M+ early-buyer wallets (incl. dump-cluster detection), push every pump.fun graduation, and stream every DEX trade. Free tier: 200 requests/day, every endpoint — no signup payment. Get a key at [madeonsol.com/pricing](https://madeonsol.com/pricing).
 
+> **New in 1.19.0** — **Batch risk scoring + stream-session control.** `rest.tokens_batch_risk(["mint1", "mint2", ...])` scores 1–50 base58 mints for rug-risk/safety in a single call (counts as 1 request against quota). Returns `{ "tokens": [...], "count": N }` where each entry mirrors the single-mint `rest.token_risk()` shape (`risk_score`, `band`, `factors`, `inputs`) plus an `as_of` ISO-8601 timestamp; untracked mints come back as `{ "mint", "error": "not_tracked" }` and don't fail the batch. `tokens` preserves de-duplicated input order. PRO/ULTRA only. Plus WebSocket session control: `rest.stream_sessions()` lists your live sessions across both stream services (each with `id`, `service`, `tier`, `channels`, `connected_at`, `remote_ip`, `messages_sent`) and `rest.kill_stream_session(id)` force-terminates one and frees its connection slot — the self-serve fix for a 4002 connection-limit lockout after a deploy overlap leaves a ghost socket. Both PRO/ULTRA only, exposed as the `madeonsol_stream_sessions` / `madeonsol_kill_stream_session` (LangChain) and "MadeOnSol Stream Sessions" / "MadeOnSol Kill Stream Session" (CrewAI) tools.
+>
+> **New in 1.18.0** — **Almost-bonded discovery + trending sorts.** `rest.almost_bonded(min_progress=90, min_velocity_pct_per_min=0.5, deployer_tier="elite", sort="eta_asc", limit=25)` returns pre-bond pump.fun tokens near graduation, ranked by velocity (Δprogress/min) — "95% and accelerating" beats "92% stalled". Each token carries `progress_pct`, `velocity_pct_per_min`, `eta_minutes`, `stalled`, `real_sol_reserves`, `market_cap_usd`, `liquidity_usd`, `authorities_revoked`, `deployer_tier`, and `age_minutes`. `sort` is `'velocity_desc'` (default) / `'progress_desc'` / `'eta_asc'`. PRO/ULTRA only (keyed). Exposed as the `madeonsol_almost_bonded` (LangChain) / "MadeOnSol Almost Bonded" (CrewAI) tool. Plus `rest.tokens_list(sort=...)` gains four momentum sorts — `'mc_change_5m_desc'`, `'mc_change_1h_desc'`, `'volume_1h_desc'`, and `'trending'` (composite recent-volume × positive-momentum rank).
+>
 > **New in 1.17.0** — **Token money-flow.** `client.token_flow(mint, window="1h")` (and the async `await client.token_flow_async(mint, window="1h")`) aggregates buy/sell pressure for a token over a rolling `'1h'` or `'24h'` window. Returns `mint`, `window`, `from`, `unique_wallets`, `unique_buyers`, `unique_sellers`, `buy_count`, `sell_count`, `total_trades`, `buy_sol`, `sell_sol`, `net_sol`, and `trades_per_wallet`. PRO+ (keyed). Also: `deployer_alerts()` items now carry `deployer_sol_balance` (float | None) — the deployer wallet's SOL balance at alert time (`None` for historical rows).
 >
 > **New in 1.16.0** — **Live token snapshot + Signal Scorecard (keyless x402).** `client.token(mint)` returns a live `{ "token": {...} }` snapshot (`price_usd`/`price_sol`, `market_cap`, `fdv_usd`, `liquidity_usd`, `liquidity_to_mc_ratio`, `primary_dex`, `is_token_2022`, `transfer_fee_bps`, `top_buyers=[{name, sol_amount}]`). `client.signal_performance(name, history=False)` returns out-of-sample reliability for a named signal (`hit_rate`, `base_rate`, `lift`, `sample_n`, `window_days`, `test_from`/`test_to`, plus `metric_type`, `outcome`, `methodology`, `as_of`; per-day series when `history=True`) — valid names: `dump_cluster_count`, `runner_rate`, `recycled_early_buyer_count`, `coordination_count`. `client.signals()` (free) lists the signal catalog.
@@ -229,6 +233,7 @@ Scored from 1M+ early-buyer records (wallets seen in the first 20 buyers of Pump
 | `rest.token_cap_table(mint)` | PRO+ | First non-deployer early buyers, enriched with PnL/KOL/bot flags. PRO=10, ULTRA=20 |
 | `rest.token_buyer_quality(mint)` | All | 0–100 buyer-quality score + full breakdown (5-min cached) |
 | `rest.token_risk(mint)` | PRO+ | Transparent 0–100 rug-risk/safety score with `band`, explainable `factors`, and raw `inputs` |
+| `rest.tokens_batch_risk(mints)` | **New 1.19** · PRO+ | Bulk risk scoring for 1–50 mints in one call (1 request). Each entry mirrors `token_risk` + `as_of`; untracked mints → `{mint, error: "not_tracked"}` |
 | `rest.token_candles(mint, tf, limit, from_, to)` | PRO+ | 1-minute-derived OHLCV candles by timeframe. PRO=OHLCV/30d, ULTRA=+net flow/full history |
 
 ### Deshred Sniper Alerts *(new in 1.10)*
@@ -329,6 +334,7 @@ LangChain: `MadeOnSolPriceAlertsListTool`, `MadeOnSolPriceAlertsCreateTool`. Cre
 | `rest.scout_leaderboard(period=, limit=)` | PRO+ | Top scout-tier KOLs ranked by first-touch follow-on rate, win rate, and ROI |
 | `rest.kol_consensus(min_kols=, period=)` | PRO+ | Tokens with the strongest KOL agreement signal — weighted by scout score and recent PnL |
 | `rest.peak_history(mint)` | PRO+ | Historical peak-density windows for a token — every coordination spike with KOL breakdown |
+| `rest.almost_bonded(min_progress=, min_velocity_pct_per_min=, deployer_tier=, sort=, limit=)` | **New 1.18** · PRO+ | Pre-bond pump.fun tokens near graduation, ranked by velocity (Δprogress/min) — progress_pct, velocity_pct_per_min, eta_minutes, stalled, deployer_tier |
 | `rest.coordination_history(period=, limit=)` | PRO+ | Global coordination event log with token, KOL count, score, and outcome |
 
 ```python
@@ -397,6 +403,8 @@ Per-wallet endpoints that work on **any** Solana wallet, not just curated KOLs. 
 | `rest.delete_webhook(id)` | Delete permanently |
 | `rest.test_webhook(id)` | Send test payload |
 | `rest.get_stream_token()` | Issue a 24h WebSocket streaming token (returns `ws_url` + `dex_ws_url`) |
+| `rest.stream_sessions()` | **New 1.19** · PRO+ · List your live WebSocket sessions (`id`, `service`, `tier`, `channels`, `connected_at`, `remote_ip`, `messages_sent`) across both stream services |
+| `rest.kill_stream_session(id)` | **New 1.19** · PRO+ · Force-terminate one of your sessions by `id` and free its slot — self-serve fix for a 4002 connection-limit lockout |
 
 ### Rate-limit headers
 
@@ -455,8 +463,8 @@ Full protocol reference: [madeonsol.com/api-docs#streaming](https://madeonsol.co
 | Tier | Price | Wallets tracked | Requests/day |
 |------|-------|-----------------|--------------|
 | BASIC (free) | $0 | 10 | 200 |
-| PRO | $49/mo ($490/yr) | 50 | 10,000 |
-| ULTRA | $149/mo ($1,490/yr) | 100 + WS events | 100,000 |
+| PRO | €43/mo (€430/yr) ≈ $49 | 50 | 10,000 |
+| ULTRA | €131/mo (€1310/yr) ≈ $149 | 100 + WS events | 100,000 |
 
 Free tier returns the full REST response shape on every endpoint — real wallets, TX signatures, full precision. Paid tiers unlock webhooks, WebSockets, rule engines, and ULTRA-only data depth. Get a key at [madeonsol.com/pricing](https://madeonsol.com/pricing).
 
