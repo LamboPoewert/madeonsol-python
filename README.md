@@ -3,10 +3,10 @@
 [![PyPI](https://img.shields.io/pypi/v/madeonsol-x402?style=flat-square)](https://pypi.org/project/madeonsol-x402/)
 [![Python](https://img.shields.io/pypi/pyversions/madeonsol-x402?style=flat-square)](https://pypi.org/project/madeonsol-x402/)
 [![Downloads](https://img.shields.io/pypi/dm/madeonsol-x402?style=flat-square)](https://pypi.org/project/madeonsol-x402/)
-[![GitHub stars](https://img.shields.io/github/stars/LamboPoewert/madeonsol-python?style=flat-square&logo=github)](https://github.com/LamboPoewert/madeonsol-python)
+[![GitHub stars](https://img.shields.io/github/stars/madeonsol/madeonsol-python?style=flat-square&logo=github)](https://github.com/madeonsol/madeonsol-python)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
-> ⭐ **[Star on GitHub](https://github.com/LamboPoewert/madeonsol-python)** · 📂 **[Examples](./examples/)** · 📚 **[API docs](https://madeonsol.com/api-docs)**
+> ⭐ **[Star on GitHub](https://github.com/madeonsol/madeonsol-python)** · 📂 **[Examples](./examples/)** · 📚 **[API docs](https://madeonsol.com/api-docs)**
 
 Python SDK for the [MadeOnSol](https://madeonsol.com) Solana KOL intelligence API.
 
