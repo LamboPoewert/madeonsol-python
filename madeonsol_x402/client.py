@@ -40,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.19.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.20.0"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -621,7 +621,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.19.0",
+            "User-Agent": "madeonsol-x402-python/1.20.0",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -1041,6 +1041,29 @@ class MadeOnSolREST:
             mint: Token mint address.
         """
         return self._request("GET", f"/tokens/{mint}/risk")
+
+    def token_bundle(self, mint: str) -> dict[str, Any]:
+        """Bundle-cohort holdings — how much of a token's supply the launch
+        bundle still holds.
+
+        Returns a ``bundle`` summary (``wallet_count``, ``bundle_kind``
+        ('atomic_tx' | 'same_slot' | 'none'), ``held_ratio`` net-held /
+        buy-volume — churn-sensitive, secondary, ``held_pct_of_supply``
+        net-held / circulating supply — the HEADLINE signal, ``None`` when
+        supply is unknown, ``fully_exited``, ``buy_volume`` cumulative buy
+        volume (NOT distinct tokens — can exceed supply), and ``tokens_held``
+        swap-derived net position) plus a ``wallets`` array. All tiers reach
+        the endpoint; the response is field-gated by tier: BASIC/TRADER get
+        the ``bundle`` summary only (``wallets`` is empty), PRO adds the top-10
+        wallets with flags only (``rank``, ``wallet``, ``held_ratio``,
+        ``has_sold``, ``atomic``, ``is_kol``), and ULTRA adds per-wallet
+        identity (``kol_name``, ``win_rate``, ``bot_confidence``,
+        ``tokens_held``).
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._request("GET", f"/tokens/{mint}/bundle")
 
     def tokens_batch_risk(self, mints: list[str]) -> dict[str, Any]:
         """Bulk token rug-risk/safety scoring — up to 50 mints in one call (PRO+).
