@@ -40,7 +40,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.20.0"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.20.1"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -621,7 +621,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.20.0",
+            "User-Agent": "madeonsol-x402-python/1.20.1",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -1053,7 +1053,7 @@ class MadeOnSolREST:
         supply is unknown, ``fully_exited``, ``buy_volume`` cumulative buy
         volume (NOT distinct tokens — can exceed supply), and ``tokens_held``
         swap-derived net position) plus a ``wallets`` array. All tiers reach
-        the endpoint; the response is field-gated by tier: BASIC/TRADER get
+        the endpoint; the response is field-gated by tier: BASIC get
         the ``bundle`` summary only (``wallets`` is empty), PRO adds the top-10
         wallets with flags only (``rank``, ``wallet``, ``held_ratio``,
         ``has_sold``, ``atomic``, ``is_kol``), and ULTRA adds per-wallet
