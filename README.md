@@ -217,6 +217,7 @@ agent = Agent(role="Solana Analyst", tools=ALL_TOOLS)
 | `rest.kol_pnl(wallet, period=)` | Deep per-wallet PnL: equity curve, risk metrics, closed positions. ULTRA adds open positions (tokens bought but not yet sold). |
 | `rest.kol_timing(wallet, period=)` | KOL entry/exit timing profile — available on all tiers |
 | `rest.deployer_trajectory(wallet)` | Deployer skill curve — streaks, rolling bond rate, trend — available on all tiers |
+| `rest.deployer_history(wallet, limit=90)` | **New 1.20** | Daily reputation time-series — backtest "was this deployer elite when it launched token X?" without look-ahead bias. `snapshots` array of per-day `tier`/`bonding_rate`/`avg_peak_mc`. `limit` 1–365 |
 
 ### Alpha Wallet Intelligence
 
@@ -238,6 +239,7 @@ Scored from 1M+ early-buyer records (wallets seen in the first 20 buyers of Pump
 | `rest.token_bundle(mint)` | **New 1.20** · All | Bundle-cohort holdings — `bundle` summary with `held_pct_of_supply` (headline), `bundle_kind`, `fully_exited`. BASIC=summary only, PRO=+top-10 wallet flags, ULTRA=+identity |
 | `rest.tokens_batch_risk(mints)` | **New 1.19** · PRO+ | Bulk risk scoring for 1–50 mints in one call (1 request). Each entry mirrors `token_risk` + `as_of`; untracked mints → `{mint, error: "not_tracked"}` |
 | `rest.token_candles(mint, tf, limit, from_, to)` | PRO+ | 1-minute-derived OHLCV candles by timeframe. PRO=OHLCV/30d, ULTRA=+net flow/full history |
+| `rest.token_pools(mint)` | **New 1.20** · PRO+ | Per-venue liquidity map — every DEX pool a token trades in, live vs parked. `pools` array + `summary` with `total_liquidity_usd`, `primary_dex`, `top_pool_share_pct` |
 
 ### Deshred Sniper Alerts *(new in 1.10)*
 

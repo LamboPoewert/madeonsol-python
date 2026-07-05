@@ -6,6 +6,14 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+# Derive the User-Agent version from the installed package metadata (the single
+# source of truth is pyproject.toml) so it can never drift from the manifest.
+try:
+    _UA_VERSION = _pkg_version("madeonsol-x402")
+except PackageNotFoundError:  # running from source without an installed dist
+    _UA_VERSION = "0.0.0"
 
 if TYPE_CHECKING:
     from .stream import MadeOnSolStream
@@ -40,7 +48,7 @@ class MadeOnSolClient:
 
         if api_key:
             self._auth_mode = "madeonsol"
-            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "madeonsol-x402-python/1.20.1"}
+            self._auth_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": f"madeonsol-x402-python/{_UA_VERSION}"}
         elif private_key:
             self._auth_mode = "x402"
             from x402 import x402Client
@@ -621,7 +629,7 @@ class MadeOnSolREST:
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "madeonsol-x402-python/1.20.1",
+            "User-Agent": f"madeonsol-x402-python/{_UA_VERSION}",
         }
         self.last_rate_limit: dict[str, Any] = {
             "limit": None, "remaining": None, "reset": None, "request_id": None,
@@ -770,6 +778,23 @@ class MadeOnSolREST:
     def deployer_trajectory(self, wallet: str) -> dict[str, Any]:
         """Deployer skill curve — streaks, rolling bond rate, trend."""
         return self._request("GET", f"/deployer-hunter/{wallet}/trajectory")
+
+    def deployer_history(self, wallet: str, limit: int = 90) -> dict[str, Any]:
+        """A deployer's daily reputation time-series — backtest "was this
+        deployer elite when it launched token X?" without look-ahead bias.
+
+        Returns ``is_deployer``, ``wallet``, and a ``snapshots`` array (each
+        entry: ``date``, ``tier``, ``is_tracked``, ``total_deployed``,
+        ``total_bonded``, ``bonding_rate``, ``recent_bond_rate``, ``avg_peak_mc``,
+        ``best_token_peak_mc``).
+
+        Args:
+            wallet: Deployer wallet address.
+            limit: Number of daily snapshots to return, 1–365 (default 90).
+        """
+        return self._request(
+            "GET", f"/deployer-hunter/{wallet}/history", params={"limit": limit}
+        )
 
     # ── Streaming ──
 
@@ -1064,6 +1089,22 @@ class MadeOnSolREST:
             mint: Token mint address.
         """
         return self._request("GET", f"/tokens/{mint}/bundle")
+
+    def token_pools(self, mint: str) -> dict[str, Any]:
+        """Per-venue liquidity map — every DEX pool a token trades in, live vs
+        parked, fragmentation + top-pool share.
+
+        Returns ``mint`` and a ``pools`` array (each entry: ``pool_address``,
+        ``dex``, ``quote_mint``, ``liquidity_usd``, ``last_price_sol``,
+        ``last_swap_at``, ``amm_id``, ``is_active``) plus a ``summary``
+        (``pool_count``, ``active_pool_count``, ``dex_count``, ``dexes``,
+        ``total_liquidity_usd``, ``primary_pool``, ``primary_dex``,
+        ``top_pool_share_pct``). PRO/ULTRA only — BASIC callers receive HTTP 403.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._request("GET", f"/tokens/{mint}/pools")
 
     def tokens_batch_risk(self, mints: list[str]) -> dict[str, Any]:
         """Bulk token rug-risk/safety scoring — up to 50 mints in one call (PRO+).
