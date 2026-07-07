@@ -1522,6 +1522,29 @@ class MadeOnSolREST:
         """
         return self._request("GET", f"/wallet/{address}/positions")
 
+    def wallet_holdings(
+        self,
+        address: str,
+        *,
+        limit: int = 200,
+        min_value_usd: float = 0,
+    ) -> dict[str, Any]:
+        """Verified CURRENT on-chain holdings — reads the wallet's actual SPL +
+        Token-2022 token accounts and SOL balance from chain, enriches with our
+        price/MC/name/symbol data, and computes `transfer_delta` (on-chain amount
+        minus trade-derived net position, exposing non-swap flows: airdrops,
+        insider funding, wallet-hopping). Distinct from `wallet_positions`, which
+        is trade-derived FIFO — holdings is "what they actually hold right now".
+        ULTRA only.
+
+        Args:
+            address: Base58 wallet address.
+            limit: 1-500, default 200.
+            min_value_usd: Minimum USD value per holding, default 0.
+        """
+        params: dict[str, Any] = {"limit": limit, "min_value_usd": min_value_usd}
+        return self._request("GET", f"/wallet/{address}/holdings", params=params)
+
     def wallet_trades(
         self,
         address: str,
