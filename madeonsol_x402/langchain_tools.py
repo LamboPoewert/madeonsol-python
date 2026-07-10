@@ -321,6 +321,73 @@ class MadeOnSolAlmostBonded(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class WalletBatchClassifyInput(BaseModel):
+    wallets: str = Field(description="Comma-separated list of 1-100 base58 wallet addresses to classify")
+
+
+class MadeOnSolWalletBatchClassify(BaseTool):
+    name: str = "madeonsol_wallet_batch_classify"
+    description: str = (
+        "Bulk wallet reputation flags for 1-100 Solana wallets in ONE call (counts as one request): "
+        "per wallet is_sniper / is_bundler / is_dumper / is_kol (+ kol_name), bot_confidence "
+        "('none'/'low'/'medium'/'high', null when not alpha-tracked), and a dump_cluster cohort block. "
+        "Flags are pump.fun-pipeline scoped — false means NOT OBSERVED in the pipeline, not verified clean. "
+        "is_bundler is a lifetime flag; is_dumper uses a rolling 42-day window. "
+        "Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = WalletBatchClassifyInput
+
+    def _run(self, wallets: str) -> str:
+        addresses = [w.strip() for w in wallets.split(",") if w.strip()]
+        data = _rest_client().wallet_batch_classify(addresses)
+        return json.dumps(data, indent=2)
+
+
+class TokenTradesInput(BaseModel):
+    mint: str = Field(description="Token mint address (base58)")
+    limit: int = Field(default=100, description="Trades per page (1-500, default 100)")
+    cursor: str | None = Field(default=None, description="Cursor from previous response's next_cursor field to page older trades")
+    action: str | None = Field(default=None, description="Filter: 'buy' or 'sell'")
+    wallet: str | None = Field(default=None, description="Filter to a single wallet address (base58)")
+    since: int | None = Field(default=None, description="Unix epoch seconds — default full history (starts 2026-04-12)")
+    until: int | None = Field(default=None, description="Unix epoch seconds — default now")
+
+
+class MadeOnSolTokenTrades(BaseTool):
+    name: str = "madeonsol_token_trades"
+    description: str = (
+        "Mint-scoped trade tape — cursor-paginated raw trades for one token, newest first "
+        "(the backfill/history complement to the live DEX firehose). Each trade: tx_signature, "
+        "wallet_address, action, sol_amount, token_amount, price_sol/price_usd, early_buyer_rank, "
+        "slot, block_time, traded_at. Default window is FULL history — capture starts 2026-04-12 "
+        "and is pump.fun-pipeline scoped (the response's coverage block carries history_start + scope). "
+        "Pass next_cursor from the previous response to page older trades. "
+        "Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenTradesInput
+
+    def _run(
+        self,
+        mint: str,
+        limit: int = 100,
+        cursor: str | None = None,
+        action: str | None = None,
+        wallet: str | None = None,
+        since: int | None = None,
+        until: int | None = None,
+    ) -> str:
+        data = _rest_client().token_trades(
+            mint,
+            limit=limit,
+            cursor=cursor,
+            action=action,
+            wallet=wallet,
+            since=since,
+            until=until,
+        )
+        return json.dumps(data, indent=2)
+
+
 ALL_TOOLS = [
     MadeOnSolKolFeed(),
     MadeOnSolKolCoordination(),
@@ -339,4 +406,6 @@ ALL_TOOLS = [
     MadeOnSolKolConsensus(),
     MadeOnSolPeakHistory(),
     MadeOnSolAlmostBonded(),
+    MadeOnSolWalletBatchClassify(),
+    MadeOnSolTokenTrades(),
 ]

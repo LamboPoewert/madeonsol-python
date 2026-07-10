@@ -390,6 +390,17 @@ class MadeOnSolClient:
         is_deployer + tokens_deployed). Works on any wallet, not just curated KOLs.
         **x402: $0.005**.
 
+        v1.22 — ``flags`` also carries reputation flags ``is_sniper`` /
+        ``is_bundler`` / ``is_dumper`` plus a ``dump_cluster`` block
+        (``dump_cohorts``, ``runner_cohorts``, ``total_cohorts``, ``as_of``;
+        ``None`` when the wallet has no dump-cluster record). ``bot_confidence``
+        is a string enum ``'none'`` | ``'low'`` | ``'medium'`` | ``'high'`` (or
+        ``None`` when not alpha-tracked) — earlier docs said number, and a
+        server bug made it always ``None``; it now returns real values.
+        Scope caveat: reputation flags derive from the pump.fun trade pipeline —
+        ``False`` means "not observed", NOT verified clean; ``is_bundler`` is a
+        lifetime flag, ``is_dumper`` uses a rolling 42-day window.
+
         Args:
             address: Base58 wallet address (32-44 chars).
         """
@@ -538,6 +549,13 @@ class MadeOnSolClient:
         breakdown (liquidity, mint/freeze authority, LP status, holder
         concentration) — the "is this safe to buy?" decision call.
 
+        v1.22 — ``inputs`` gains ``sniper_footprint``: the slot-window
+        launch-snipe rollup (``buys``, ``buyers``, ``sol``, ``supply_pct``,
+        ``sniper_wallet_buys``, ``data_available``, ``as_of``; buys landing in
+        slots deploy-1..deploy+3). ``None`` = no rollup yet;
+        ``data_available=False`` = mint not observable in the trade pipeline —
+        NOT zero snipes.
+
         Args:
             mint: Token mint address.
         """
@@ -588,8 +606,125 @@ class MadeOnSolClient:
         """
         return self._get_sync("/api/x402/signals")
 
+    # ── v1.22 — endpoints newly added to the keyless x402 catalog (18 → 25).
+    # Each also works in api_key mode (the /api/x402/ prefix is rewritten to
+    # /api/v1/). Keyed REST equivalents live on MadeOnSolREST.
+
+    def token_candles(
+        self,
+        mint: str,
+        *,
+        tf: str = "1h",
+        limit: int = 200,
+        from_: str | None = None,
+        to: str | None = None,
+    ) -> dict[str, Any]:
+        """v1.22 — OHLCV candles, now keyless. **x402: $0.01**.
+
+        Same shape as :meth:`MadeOnSolREST.token_candles` — see that method for
+        the full field list. Keyless callers get the PRO slice (OHLCV, last 30
+        days).
+
+        Args:
+            mint: Token mint address.
+            tf: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' (default '1h').
+            limit: Candles to return, 1-1000 (default 200).
+            from_: Optional ISO8601 start (maps to the ``from`` query param).
+            to: Optional ISO8601 end.
+        """
+        params: dict[str, Any] = {"tf": tf, "limit": limit}
+        if from_ is not None:
+            params["from"] = from_
+        if to is not None:
+            params["to"] = to
+        return self._get_sync(f"/api/x402/tokens/{mint}/candles", params)
+
+    def almost_bonded(self, **filters: Any) -> dict[str, Any]:
+        """v1.22 — Pre-bond pump.fun tokens near graduation, now keyless.
+        **x402: $0.01**.
+
+        Same params and shape as :meth:`MadeOnSolREST.almost_bonded`
+        (``min_progress``, ``max_progress``, ``min_velocity_pct_per_min``,
+        ``max_age_minutes``, ``deployer_tier``, ``authority_revoked``,
+        ``min_liq``, ``sort``, ``limit``).
+        """
+        params: dict[str, Any] = {}
+        for key, val in filters.items():
+            if val is None:
+                continue
+            params[key] = "true" if val is True else "false" if val is False else val
+        return self._get_sync("/api/x402/tokens/almost-bonded", params or None)
+
+    def token_top_traders(
+        self,
+        mint: str,
+        *,
+        limit: int | None = None,
+        sort: str | None = None,
+        window_days: int | None = None,
+        min_bought_sol: float | None = None,
+    ) -> dict[str, Any]:
+        """v1.22 — Wallets ranked by realized PnL (or ROI) on a token, enriched
+        with KOL identity and alpha-wallet reputation. **x402: $0.02**.
+
+        Args:
+            mint: Token mint address.
+            limit: Max traders to return.
+            sort: 'pnl' (default) or 'roi'.
+            window_days: Trade lookback window in days.
+            min_bought_sol: Minimum SOL bought to qualify (default 0.1).
+        """
+        params: dict[str, Any] = {}
+        if limit is not None: params["limit"] = limit
+        if sort is not None: params["sort"] = sort
+        if window_days is not None: params["window_days"] = window_days
+        if min_bought_sol is not None: params["min_bought_sol"] = min_bought_sol
+        return self._get_sync(f"/api/x402/tokens/{mint}/top-traders", params or None)
+
+    def token_cap_table(self, mint: str) -> dict[str, Any]:
+        """v1.22 — Early-buyer cap table (first non-deployer buyers with PnL,
+        exit status, bundle/KOL/alpha flags), now keyless. **x402: $0.02**.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._get_sync(f"/api/x402/tokens/{mint}/cap-table")
+
+    def sniper_recent(
+        self,
+        *,
+        since: str | None = None,
+        deployer_tier: str | None = None,
+        min_bond_rate: float | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """v1.22 — Deshred pre-confirm pump.fun deploy feed, now keyless
+        (elite/good scope). **x402: $0.01**.
+
+        Each deploy carries ``footprint`` — the slot-window snipe rollup
+        (``buys``, ``buyers``, ``sol``, ``supply_pct``, ``sniper_wallet_buys``,
+        ``data_available``, ``as_of``) or ``None`` when not yet settled /
+        observable. Keyed callers: PRO sees elite/good, ULTRA all tiers +
+        watchlist — see :meth:`MadeOnSolREST.sniper_recent`.
+        """
+        params: dict[str, Any] = {}
+        if since is not None: params["since"] = since
+        if deployer_tier is not None: params["deployer_tier"] = deployer_tier
+        if min_bond_rate is not None: params["min_bond_rate"] = min_bond_rate
+        if limit is not None: params["limit"] = limit
+        return self._get_sync("/api/x402/sniper/recent", params or None)
+
+    def deployer_trajectory(self, wallet: str) -> dict[str, Any]:
+        """v1.22 — Deployer skill curve (streaks, rolling bond rate, trend),
+        now keyless. **x402: $0.01**.
+
+        Args:
+            wallet: Deployer wallet address.
+        """
+        return self._get_sync(f"/api/x402/deployer-hunter/{wallet}/trajectory")
+
     def discovery(self) -> dict[str, Any]:
-        """Free — list all endpoints and prices."""
+        """Free — list all endpoints and prices (25 keyless x402 endpoints)."""
         resp = httpx.get(f"{self.base_url}/api/x402")
         resp.raise_for_status()
         return resp.json()
@@ -721,6 +856,13 @@ class MadeOnSolREST:
 
         PRO sees elite/good deployers; ULTRA sees all tiers. Pass watchlist=True
         (ULTRA) to narrow to your custom deployer watchlist (any tier).
+
+        v1.22 — each deploy carries ``footprint``: the slot-window snipe
+        rollup (``buys``, ``buyers``, ``sol``, ``supply_pct``,
+        ``sniper_wallet_buys``, ``data_available``, ``as_of``; buys in slots
+        deploy-1..deploy+3), or ``None`` for deploys younger than the ~10-min
+        settle window or outside the trade-pipeline write-gate — absent, not
+        zero.
         """
         params: dict[str, Any] = {}
         if since:
@@ -1062,6 +1204,11 @@ class MadeOnSolREST:
         deployer bond rate, KOL signal, blacklist). PRO/ULTRA only — BASIC
         callers receive HTTP 403.
 
+        v1.22 — ``inputs`` gains ``sniper_footprint``: the slot-window
+        launch-snipe rollup (``buys``, ``buyers``, ``sol``, ``supply_pct``,
+        ``sniper_wallet_buys``, ``data_available``, ``as_of``). ``None`` = no
+        rollup; ``data_available=False`` = not observable, NOT zero snipes.
+
         Args:
             mint: Token mint address.
         """
@@ -1160,6 +1307,52 @@ class MadeOnSolREST:
         if to is not None:
             params["to"] = to
         return self._request("GET", f"/tokens/{mint}/candles", params=params)
+
+    def token_trades(
+        self,
+        mint: str,
+        *,
+        limit: int = 100,
+        cursor: str | None = None,
+        action: str | None = None,
+        wallet: str | None = None,
+        since: int | None = None,
+        until: int | None = None,
+    ) -> dict[str, Any]:
+        """v1.22 — Mint-scoped trade tape: cursor-paginated raw trades for one
+        token, newest first (the backfill complement to the live DEX firehose).
+        PRO+.
+
+        Each trade: ``tx_signature``, ``wallet_address``, ``action``
+        (``'buy'`` | ``'sell'``), ``sol_amount``, ``token_amount``,
+        ``price_sol`` (``float | None``), ``price_usd`` (``float | None``),
+        ``early_buyer_rank`` (``int | None``), ``slot`` (``int | None``),
+        ``block_time`` (unix sec), ``traded_at`` (ISO 8601). The response also
+        carries ``next_cursor``, ``has_more``, ``filters``, and a ``coverage``
+        honesty block (``history_start``, ``scope``) — capture starts
+        2026-04-12 and is pump.fun-pipeline scoped.
+
+        Args:
+            mint: Token mint address.
+            limit: 1-500, default 100.
+            cursor: From ``next_cursor`` of a previous response.
+            action: 'buy' or 'sell' filter.
+            wallet: Filter to a single wallet address.
+            since: Unix epoch seconds (default: full history).
+            until: Unix epoch seconds (default: now).
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        if action is not None:
+            params["action"] = action
+        if wallet is not None:
+            params["wallet"] = wallet
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        return self._request("GET", f"/tokens/{mint}/trades", params=params)
 
     # ── Copy-Trade (PRO/ULTRA) ──
 
@@ -1497,10 +1690,39 @@ class MadeOnSolREST:
         """Aggregate stats over 90d + cross-product flags (is_kol, is_alpha_tracked
         + bot_confidence, is_deployer) for any Solana wallet. PRO+.
 
+        v1.22 — ``flags`` also carries ``is_sniper`` / ``is_bundler`` /
+        ``is_dumper`` plus a ``dump_cluster`` block (``dump_cohorts``,
+        ``runner_cohorts``, ``total_cohorts``, ``as_of``; ``None`` when absent).
+        ``bot_confidence`` is a string enum ``'none'`` | ``'low'`` |
+        ``'medium'`` | ``'high'`` (or ``None``) — previously documented as a
+        number and always ``None`` due to a server bug, now real values.
+        Reputation flags are pump.fun-pipeline scoped: ``False`` = not
+        observed, NOT verified clean; ``is_bundler`` is lifetime,
+        ``is_dumper`` is a rolling 42-day window.
+
         Args:
             address: Base58 wallet address.
         """
         return self._request("GET", f"/wallet/{address}")
+
+    def wallet_batch_classify(self, wallets: list[str]) -> dict[str, Any]:
+        """v1.22 — Bulk wallet reputation flags for 1-100 wallets in one call
+        (counts as 1 request). PRO+.
+
+        Returns ``{"wallets": [...], "count": N, "as_of": ISO8601}`` — each
+        entry: ``address``, ``is_sniper``, ``is_bundler``, ``is_dumper``,
+        ``is_kol``, ``kol_name`` (``str | None``), ``bot_confidence``
+        (``'none'`` | ``'low'`` | ``'medium'`` | ``'high'`` | ``None``), and
+        ``dump_cluster`` (``{"dump_cohorts", "runner_cohorts",
+        "total_cohorts", "as_of"} | None``). Flag semantics match
+        :meth:`wallet_stats`: pump.fun-pipeline scoped — ``False`` means "not
+        observed", NOT verified clean; ``is_bundler`` is a lifetime flag,
+        ``is_dumper`` uses a rolling 42-day window (recomputed daily).
+
+        Args:
+            wallets: 1-100 base58 wallet addresses. Duplicates are removed.
+        """
+        return self._request("POST", "/wallet/batch/classify", {"wallets": wallets})
 
     def wallet_pnl(self, address: str) -> dict[str, Any]:
         """Full FIFO cost-basis PnL: realized + unrealized SOL, profit factor,

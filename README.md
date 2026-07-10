@@ -14,6 +14,8 @@ Python SDK for the [MadeOnSol](https://madeonsol.com) Solana KOL intelligence AP
 
 > New customers get a 5-day free trial of Pro or Ultra when you pay by card — full access, nothing charged during the trial, cancel anytime. Start at https://madeonsol.com/pricing
 
+> **New in 1.22.0** — **Batch wallet classification, token trade tape + 7 endpoints go keyless.** `rest.wallet_batch_classify(["addr1", ...])` returns reputation flags for 1–100 wallets in one call (counts as 1 request): per wallet `is_sniper` / `is_bundler` / `is_dumper` / `is_kol` (+ `kol_name`), `bot_confidence` (string enum `'none'`/`'low'`/`'medium'`/`'high'`, `None` when not alpha-tracked), and a `dump_cluster` block (`dump_cohorts`, `runner_cohorts`, `total_cohorts`, `as_of`). Flags are pump.fun-pipeline scoped — `False` = not observed, NOT verified clean; `is_bundler` is lifetime, `is_dumper` is a rolling 42d window. `rest.token_trades(mint, limit=100, cursor=None, action=None, wallet=None, since=None, until=None)` is the mint-scoped trade tape — cursor-paginated raw trades (default FULL history; capture starts 2026-04-12) with a `coverage` honesty block. Both PRO+. `wallet_stats()` flags gain the same reputation flags + `dump_cluster`, and `bot_confidence` is now correctly a string enum (a server bug made it always `None` before — real values now). `token_risk()` inputs and `sniper_recent()` deploys gain the slot-window `sniper_footprint`/`footprint` rollup. The **keyless x402 catalog grows 18 → 25**: new `MadeOnSolClient` (keyless-capable) methods `token_candles` ($0.01), `almost_bonded` ($0.01), `token_top_traders` ($0.02), `token_cap_table` ($0.02), `sniper_recent` ($0.01), `deployer_trajectory` ($0.01) — joining `token_flow` ($0.01).
+>
 > **New in 1.21.0** — **Verified wallet holdings.** `rest.wallet_holdings(address, limit=200, min_value_usd=0)` reads the wallet's actual SPL + Token-2022 token accounts and SOL balance directly from chain, enriches each with our price/MC/name/symbol data, and computes `transfer_delta` (on-chain amount minus trade-derived net position) to expose non-swap flows — airdrops, insider funding, wallet-hopping. Distinct from `wallet_positions` (trade-derived FIFO): holdings is "what they actually hold right now". Returns `address`, `sol_balance`, `holdings` (each with `mint`, `symbol`, `name`, `amount`, `amount_raw`, `decimals`, `token_program` (`'spl'` | `'token2022'`), `price_usd`, `value_usd`, `market_cap_usd`, `is_bonded`, `trade_derived_amount`, `transfer_delta`), a `summary` (`token_accounts`, `non_zero`, `returned`, `priced`, `total_value_usd`, `truncated`), `verified_at`, `trade_window_days`, `cache_hit`, and `ttl_seconds`. `limit` 1–500 (default 200), `min_value_usd` ≥ 0 (default 0). ULTRA only.
 
 > **New in 1.20.0** — **Bundle-cohort holdings.** `rest.token_bundle(mint)` reveals how much of a token's supply its launch bundle still holds. The `bundle` summary carries `wallet_count`, `bundle_kind` (`'atomic_tx'` | `'same_slot'` | `'none'`), `held_pct_of_supply` (net-held / circulating supply — the HEADLINE signal, `null` when supply is unknown), `held_ratio` (net-held / buy-volume — churn-sensitive, secondary), `fully_exited`, `buy_volume` (cumulative buy volume — NOT distinct tokens, can exceed supply), and `tokens_held` (swap-derived net position). All tiers reach the endpoint, field-gated by tier: BASIC get the `bundle` summary only (`wallets: []`), PRO adds the top-10 `wallets` with flags only (`rank`, `wallet`, `held_ratio`, `has_sold`, `atomic`, `is_kol`), and ULTRA adds per-wallet identity (`kol_name`, `win_rate`, `bot_confidence`, `tokens_held`).
@@ -212,7 +214,13 @@ agent = Agent(role="Solana Analyst", tools=ALL_TOOLS)
 | `signal_performance(name, history=False)` | **New 1.16** · Signal Scorecard — out-of-sample hit_rate/base_rate/lift/sample_n per signal (dump_cluster_count, runner_rate, recycled_early_buyer_count, coordination_count) |
 | `signals()` | **New 1.16** · Free — signal catalog with per-signal methodology and performance_endpoint |
 | `token_flow(mint, window="1h")` | **New 1.17** · PRO+ · Token money-flow over a rolling 1h/24h window — unique wallets/buyers/sellers, buy/sell counts + SOL, net SOL flow, trades per wallet. Async: `token_flow_async(mint, window="1h")` |
-| `discovery()` | Free — list all endpoints and prices |
+| `token_candles(mint, tf=, limit=, from_=, to=)` | **New 1.22** · OHLCV candles, keyless (PRO slice: 30d). $0.01 |
+| `almost_bonded(**filters)` | **New 1.22** · Pre-bond pump.fun tokens near graduation, ranked by velocity. $0.01 |
+| `token_top_traders(mint, limit=, sort=, window_days=, min_bought_sol=)` | **New 1.22** · Wallets ranked by realized PnL/ROI on a token, enriched with KOL/alpha identity. $0.02 |
+| `token_cap_table(mint)` | **New 1.22** · Early-buyer cap table with PnL/exit/bundle/KOL flags. $0.02 |
+| `sniper_recent(since=, deployer_tier=, min_bond_rate=, limit=)` | **New 1.22** · Deshred pre-confirm deploy feed (keyless: elite/good scope) with per-deploy `footprint` snipe rollup. $0.01 |
+| `deployer_trajectory(wallet)` | **New 1.22** · Deployer skill curve — streaks, rolling bond rate, trend. $0.01 |
+| `discovery()` | Free — list all endpoints and prices (25 keyless x402 endpoints) |
 
 ### REST API — KOL/deployer detail
 
@@ -243,6 +251,7 @@ Scored from 1M+ early-buyer records (wallets seen in the first 20 buyers of Pump
 | `rest.token_bundle(mint)` | **New 1.20** · All | Bundle-cohort holdings — `bundle` summary with `held_pct_of_supply` (headline), `bundle_kind`, `fully_exited`. BASIC=summary only, PRO=+top-10 wallet flags, ULTRA=+identity |
 | `rest.tokens_batch_risk(mints)` | **New 1.19** · PRO+ | Bulk risk scoring for 1–50 mints in one call (1 request). Each entry mirrors `token_risk` + `as_of`; untracked mints → `{mint, error: "not_tracked"}` |
 | `rest.token_candles(mint, tf, limit, from_, to)` | PRO+ | 1-minute-derived OHLCV candles by timeframe. PRO=OHLCV/30d, ULTRA=+net flow/full history |
+| `rest.token_trades(mint, limit=, cursor=, action=, wallet=, since=, until=)` | **New 1.22** · PRO+ | Mint-scoped trade tape — cursor-paginated raw trades, default FULL history (capture starts 2026-04-12, pump.fun-pipeline scoped; see the `coverage` block) |
 | `rest.token_pools(mint)` | **New 1.20** · PRO+ | Per-venue liquidity map — every DEX pool a token trades in, live vs parked. `pools` array + `summary` with `total_liquidity_usd`, `primary_dex`, `top_pool_share_pct` |
 
 ### Deshred Sniper Alerts *(new in 1.10)*
@@ -394,7 +403,8 @@ Per-wallet endpoints that work on **any** Solana wallet, not just curated KOLs. 
 
 | Method | Description |
 |---|---|
-| `rest.wallet_stats(address)` | Aggregate stats over 90d + cross-product flags (is_kol + kol_name, is_alpha_tracked + bot_confidence + win_rate, is_deployer + tokens_deployed) |
+| `rest.wallet_stats(address)` | Aggregate stats over 90d + cross-product flags (is_kol + kol_name, is_alpha_tracked + bot_confidence `'none'`/`'low'`/`'medium'`/`'high'`, is_deployer + tokens_deployed; **new 1.22:** is_sniper / is_bundler / is_dumper + `dump_cluster`) |
+| `rest.wallet_batch_classify(wallets)` | **New 1.22** · Bulk reputation flags for 1–100 wallets in one call — is_sniper/is_bundler/is_dumper/is_kol, bot_confidence, dump_cluster. Pump.fun-pipeline scoped: `False` = not observed, not verified clean |
 | `rest.wallet_pnl(address)` | Full FIFO cost-basis PnL: realized + unrealized SOL, profit factor, max drawdown, avg + median hold minutes, daily UTC PnL curve, closed positions sorted by pnl desc, open positions with live unrealized from mc-tracker |
 | `rest.wallet_positions(address)` | Open lots only — shares /pnl cache, lighter response |
 | `rest.wallet_trades(address, limit=, cursor=, action=, token_mint=, since=, until=)` | Cursor-paginated raw trades. Default window: last 90 days. limit 1-500 |
