@@ -556,6 +556,14 @@ class MadeOnSolClient:
         ``data_available=False`` = mint not observable in the trade pipeline —
         NOT zero snipes.
 
+        v1.23 — the response gains a top-level ``dev`` object (deployer
+        self-activity: ``wallet``, ``launchpad``, ``deployed_at``, ``buy_sol``,
+        ``buy_tokens``, ``buy_supply_pct``, ``bought_tokens_after``,
+        ``sold_tokens``, ``sold_sol``, ``first_sell_at``, ``last_sell_at``,
+        live ``holdings_tokens`` / ``holdings_supply_pct``, ``wallet_empty``,
+        ``transferred_out``) plus ``as_of``. ``dev`` is ``None`` when the mint
+        has no tracked deploy row.
+
         Args:
             mint: Token mint address.
         """
@@ -1209,6 +1217,14 @@ class MadeOnSolREST:
         ``sniper_wallet_buys``, ``data_available``, ``as_of``). ``None`` = no
         rollup; ``data_available=False`` = not observable, NOT zero snipes.
 
+        v1.23 — the response gains a top-level ``dev`` object (deployer
+        self-activity: ``wallet``, ``launchpad``, ``deployed_at``, ``buy_sol``,
+        ``buy_tokens``, ``buy_supply_pct``, ``bought_tokens_after``,
+        ``sold_tokens``, ``sold_sol``, ``first_sell_at``, ``last_sell_at``,
+        live ``holdings_tokens`` / ``holdings_supply_pct``, ``wallet_empty``,
+        ``transferred_out``) plus ``as_of``. ``dev`` is ``None`` when the mint
+        has no tracked deploy row.
+
         Args:
             mint: Token mint address.
         """
@@ -1353,6 +1369,44 @@ class MadeOnSolREST:
         if until is not None:
             params["until"] = until
         return self._request("GET", f"/tokens/{mint}/trades", params=params)
+
+    def token_depth(
+        self,
+        mint: str,
+        *,
+        sizes: str | list[float] | None = None,
+    ) -> dict[str, Any]:
+        """v1.23 — Per-pool price-impact / slippage depth: "how much SOL does it
+        take to move the price N%", per pool. PRO+.
+
+        Returns ``mint``, ``found``, ``sol_usd``, ``sizes_sol``,
+        ``primary_pool`` (deepest depth-computable pool), a ``pools`` array,
+        an ``unsupported_pools`` array, and a ``note``. Each supported pool
+        carries ``pool_address``, ``dex``, ``quote_mint``, ``pool_model``,
+        ``liquidity_usd``, ``is_active``, ``depth_available`` (always
+        ``True``), ``model``, ``fee_pct``, ``source`` (``'stream'`` |
+        ``'live_rpc'``), ``reserves_age_ms``, ``spot_price_sol``, per-size
+        ``quotes`` (``size_sol``, ``tokens_out``, ``avg_price_sol``,
+        ``price_impact_pct``), and ``to_move_price`` (SOL required to move the
+        price ``'1pct'`` / ``'5pct'`` / ``'10pct'``). Constant-product AMMs are
+        served from stream reserves (zero-RPC); pump.fun/bonk curves from one
+        live read of the curve's VIRTUAL reserves. Concentrated pools
+        (CLMM/Orca/DLMM), Meteora-DBC curves, and unclassified pools land in
+        ``unsupported_pools`` with a ``reason`` rather than a wrong number.
+        When no pools are tracked: ``found=False`` with empty arrays.
+
+        Args:
+            mint: Token mint address.
+            sizes: SOL buy sizes to quote — a CSV string (``"0.5,1,5,10"``) or
+                a list of floats. Max 8 values, each > 0 and <= 10000.
+                Default 0.5, 1, 5, 10.
+        """
+        params: dict[str, Any] = {}
+        if sizes is not None:
+            params["sizes"] = (
+                ",".join(str(s) for s in sizes) if isinstance(sizes, list) else sizes
+            )
+        return self._request("GET", f"/tokens/{mint}/depth", params=params or None)
 
     # ── Copy-Trade (PRO/ULTRA) ──
 

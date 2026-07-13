@@ -388,6 +388,28 @@ class MadeOnSolTokenTrades(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class TokenDepthInput(BaseModel):
+    mint: str = Field(description="Token mint address (base58)")
+    sizes: str | None = Field(default=None, description="CSV of SOL buy sizes to quote, e.g. '0.5,1,5,10' (max 8 values, each >0 and <=10000; default 0.5,1,5,10)")
+
+
+class MadeOnSolTokenDepth(BaseTool):
+    name: str = "madeonsol_token_depth"
+    description: str = (
+        "Per-pool price-impact / slippage depth for a token — how much SOL it takes to move the "
+        "price 1%/5%/10% (to_move_price) and the impact per SOL buy size (quotes: size_sol, "
+        "tokens_out, avg_price_sol, price_impact_pct), per pool. Constant-product AMMs served from "
+        "stream reserves; pump.fun/bonk curves from live virtual reserves. Concentrated pools "
+        "(CLMM/Orca/DLMM) land in unsupported_pools with a reason instead of a wrong number. "
+        "Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenDepthInput
+
+    def _run(self, mint: str, sizes: str | None = None) -> str:
+        data = _rest_client().token_depth(mint, sizes=sizes)
+        return json.dumps(data, indent=2)
+
+
 ALL_TOOLS = [
     MadeOnSolKolFeed(),
     MadeOnSolKolCoordination(),
@@ -408,4 +430,5 @@ ALL_TOOLS = [
     MadeOnSolAlmostBonded(),
     MadeOnSolWalletBatchClassify(),
     MadeOnSolTokenTrades(),
+    MadeOnSolTokenDepth(),
 ]
