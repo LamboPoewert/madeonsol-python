@@ -800,12 +800,19 @@ class MadeOnSolREST:
         json_body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # Drop unset params. httpx encodes None as an EMPTY value (`?tier=`),
+        # which the routes' Zod schemas reject with a 400 rather than treating
+        # as "not supplied" — so an omitted keyword argument must never reach
+        # the wire. Mirrors ``_clean`` in the robinhood-chain client.
+        clean = (
+            {k: v for k, v in params.items() if v is not None} if params else None
+        )
         resp = httpx.request(
             method,
             f"{self.base_url}/api/v1{path}",
             headers=self._headers,
             json=json_body,
-            params=params,
+            params=clean or None,
         )
         self._capture_rate_limit(resp)
         resp.raise_for_status()
@@ -944,6 +951,154 @@ class MadeOnSolREST:
         """
         return self._request(
             "GET", f"/deployer-hunter/{wallet}/history", params={"limit": limit}
+        )
+
+    # ── Deployer hunter: reputation, leaderboard, outcomes ──
+    #
+    # "Bonding" is the pump.fun graduation event. ``bonding_rate`` is lifetime,
+    # ``recent_bond_rate`` is the rolling recent window — a deployer can carry a
+    # strong lifetime rate and a collapsing recent one, which is exactly why
+    # both are exposed. ``runner_rate`` is meaningless until
+    # ``labeled_tokens >= 3``.
+
+    def deployer_stats(self) -> dict[str, Any]:
+        """Ecosystem-wide deployer stats.
+
+        Returns ``tracked_count``, ``signals_today``, ``bonds_detected``,
+        the chain-wide ``bond_rate``, and a per-tier ``tiers`` count.
+
+        Route: ``GET /api/v1/deployer-hunter/stats``.
+        """
+        return self._request("GET", "/deployer-hunter/stats")
+
+    def deployer_leaderboard(
+        self,
+        *,
+        tier: str | None = None,
+        sort: str = "bonding_rate",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Deployer reputation leaderboard. Excludes unranked deployers.
+
+        Compare ``bonding_rate`` (lifetime) against ``recent_bond_rate``
+        (rolling): the gap between them is the signal, not either alone.
+
+        Args:
+            tier: Restrict to one grade (``elite``/``good``/``rising``/…).
+            sort: ``'bonding_rate'`` (default) | ``'recent'`` |
+                ``'total_bonded'`` | ``'last_deploy'``.
+            limit: Page size (1–100, default 20).
+            offset: Page offset (default 0).
+
+        Route: ``GET /api/v1/deployer-hunter/leaderboard``.
+        """
+        return self._request(
+            "GET",
+            "/deployer-hunter/leaderboard",
+            params={"tier": tier, "sort": sort, "limit": limit, "offset": offset},
+        )
+
+    def deployer_profile(self, wallet: str) -> dict[str, Any]:
+        """One deployer's profile — tier, bond rates, totals, runner rate.
+
+        An untracked wallet returns a profile with zeroed counters, not a 404.
+        Gate ``runner_rate`` on ``labeled_tokens >= 3``.
+
+        Args:
+            wallet: Deployer wallet address (base58).
+
+        Route: ``GET /api/v1/deployer-hunter/{wallet}``.
+        """
+        return self._request("GET", f"/deployer-hunter/{wallet}")
+
+    def deployer_tokens(
+        self,
+        wallet: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        only_bonded: bool = False,
+    ) -> dict[str, Any]:
+        """Every token deployed by one wallet, paginated.
+
+        Each row carries ``deployed_at``, ``bonded_at``, time-to-bond and peak
+        market cap.
+
+        Args:
+            wallet: Deployer wallet address (base58).
+            limit: Page size (1–100, default 50).
+            offset: Page offset (default 0).
+            only_bonded: Return only tokens that graduated.
+
+        Route: ``GET /api/v1/deployer-hunter/{wallet}/tokens``.
+        """
+        return self._request(
+            "GET",
+            f"/deployer-hunter/{wallet}/tokens",
+            params={"limit": limit, "offset": offset, "only_bonded": only_bonded},
+        )
+
+    def deployer_alert_stats(self, *, period: str | None = None) -> dict[str, Any]:
+        """Deployer alert volume over a lookback window.
+
+        Carries bond-rate and MC-multiplier distributions broken out per tier —
+        for sizing and monitoring your deployer-hunter usage.
+
+        Args:
+            period: Lookback window, e.g. ``'24h'``, ``'7d'``, ``'30d'``.
+
+        Route: ``GET /api/v1/deployer-hunter/alert-stats``.
+        """
+        return self._request(
+            "GET", "/deployer-hunter/alert-stats", params={"period": period}
+        )
+
+    def deployer_best_tokens(
+        self, *, period: str = "7d", limit: int = 5
+    ) -> dict[str, Any]:
+        """Best-performing recent tokens from ranked (non-unranked) deployers.
+
+        Args:
+            period: Lookback window (default ``'7d'``).
+            limit: Rows to return (default 5).
+
+        Route: ``GET /api/v1/deployer-hunter/best-tokens``.
+        """
+        return self._request(
+            "GET", "/deployer-hunter/best-tokens", params={"period": period, "limit": limit}
+        )
+
+    def deployer_recent_bonds(
+        self,
+        *,
+        limit: int = 20,
+        since: str | None = None,
+        tier: str | None = None,
+        peak_mc_min: int | None = None,
+    ) -> dict[str, Any]:
+        """Tokens from tracked deployers that just graduated to Raydium.
+
+        Poll forward: pass the previous response's ``next_since`` back as
+        ``since`` to fetch only what bonded after it.
+
+        Args:
+            limit: Page size (1–100, default 20).
+            since: Incremental cursor from a prior ``next_since``.
+            tier: Restrict to one deployer grade.
+            peak_mc_min: Floor on peak market cap (USD).
+
+        Route: ``GET /api/v1/deployer-hunter/recent-bonds``.
+        """
+        return self._request(
+            "GET",
+            "/deployer-hunter/recent-bonds",
+            params={
+                "limit": limit,
+                "since": since,
+                "tier": tier,
+                "peak_mc_min": peak_mc_min,
+            },
         )
 
     # ── Streaming ──

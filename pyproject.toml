@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "madeonsol-x402"
-version = "1.23.3"
+version = "1.24.0"
 description = "x402 client SDK for MadeOnSol Solana KOL intelligence API. Works with LangChain, CrewAI, and standalone."
 readme = "README.md"
 license = {text = "MIT"}
@@ -17,9 +17,13 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 
+# x402 is pinned to the 2.x line: client.py imports `x402.x402Client`,
+# `x402.mechanisms.svm` and `x402.http.clients`, which are the 2.x module
+# layout and do not exist on 0.x/1.x — the old `>=0.1` floor admitted versions
+# that can never satisfy those imports. Verified against x402 2.19.0.
 dependencies = [
-    "httpx>=0.27",
-    "x402[svm,httpx]>=0.1",
+    "httpx>=0.27,<1",
+    "x402[svm,httpx]>=2.0,<3",
 ]
 
 [project.optional-dependencies]
