@@ -440,6 +440,12 @@ class MadeOnSolClient:
         """Cursor-paginated raw trades for any wallet (last 90 days by default).
         **x402: $0.005** per page.
 
+        Since 2026-08-16 each trade also carries ``price_sol``/``price_usd``
+        (that trade's executed price, ``sol_amount / token_amount``) and
+        ``market_price_sol``/``market_price_usd`` (the canonical pool price near
+        its slot) — this route previously returned amounts and no price at all.
+        Same definitions as :meth:`token_trades`.
+
         Args:
             address: Base58 wallet address.
             limit: 1-500, default 100.
@@ -1497,11 +1503,25 @@ class MadeOnSolREST:
         Each trade: ``tx_signature``, ``wallet_address``, ``action``
         (``'buy'`` | ``'sell'``), ``sol_amount``, ``token_amount``,
         ``price_sol`` (``float | None``), ``price_usd`` (``float | None``),
-        ``early_buyer_rank`` (``int | None``), ``slot`` (``int | None``),
+        ``market_price_sol`` (``float | None``), ``market_price_usd``
+        (``float | None``), ``early_buyer_rank`` (``int | None``), ``slot`` (``int | None``),
         ``block_time`` (unix sec), ``traded_at`` (ISO 8601). The response also
         carries ``next_cursor``, ``has_more``, ``filters``, and a ``coverage``
         honesty block (``history_start``, ``scope``) — capture starts
         2026-04-12 and is pump.fun-pipeline scoped.
+
+        Two prices, on purpose. ``price_sol``/``price_usd`` are THIS trade's
+        executed price — ``sol_amount / token_amount``, so they reconcile exactly
+        with the amounts on the same row and with the PnL endpoints. Since
+        ``sol_amount`` is the wallet's net SOL movement, that is the trader's
+        all-in effective rate: it includes the swap fee and any account rent paid
+        in the same transaction, and it is not the pool mid.
+        ``market_price_sol``/``market_price_usd`` are the market-cap tracker's
+        canonical pool price sampled near that trade's slot — one value per token
+        per update, shared by every trade in the slot. Use the first pair for cost
+        basis, fills and PnL; the second for a per-token price series independent
+        of trade size and direction. (Before 2026-08-16 ``price_sol`` carried the
+        canonical value and disagreed with the row's own amounts by a 7.9% median.)
 
         Args:
             mint: Token mint address.
