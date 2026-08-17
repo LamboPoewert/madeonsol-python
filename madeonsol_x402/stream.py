@@ -27,6 +27,8 @@ CHANNELS = (
     "price_alert:events",
     "sniper:deploys",
     "token:graduations",
+    "token:locks",
+    "token:fee_claims",
 )
 
 # Event names delivered on those channels.
@@ -42,6 +44,8 @@ EVENT_NAMES = (
     "price_alert:recovery",
     "sniper:deploy",
     "token:graduation",
+    "token:lock",
+    "token:fee_claim",
 )
 
 Handler = Callable[..., Any | Awaitable[Any]]

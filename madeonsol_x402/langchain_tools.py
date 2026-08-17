@@ -436,6 +436,222 @@ class MadeOnSolTokenHolders(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class TokenLocksInput(BaseModel):
+    mint: str = Field(description="Token mint address (base58)")
+    status: str | None = Field(default=None, description="Filter: 'active' | 'completed' | 'cancelled' | 'closed' (summary always covers all rows)")
+    program: str | None = Field(default=None, description="Filter: 'streamflow' | 'jupiter_lock' | 'bonfida_vesting'")
+    limit: int | None = Field(default=None, description="1-500, default 200")
+
+
+class MadeOnSolTokenLocks(BaseTool):
+    name: str = "madeonsol_token_locks"
+    description: str = (
+        "Token locks & vesting on a mint — every on-chain Streamflow / Jupiter Lock / Bonfida "
+        "vesting contract with its schedule (start / cliff / period / end), terms (cancelable by "
+        "sender or recipient, transferable, top-up) and a live-derived view: locked now, unlocked, "
+        "withdrawn, claimable, status, next_unlock. Summary: lock_count, active_count, locked / "
+        "deposited totals (raw + ui + usd + pct of supply), unlocking_7d / unlocking_30d forward "
+        "schedule, nearest next_unlock, active_cancelable_by_sender (a cancelable lock is a weaker "
+        "promise). Answers: did the team lock, how much, until when, can they pull it. Amounts are "
+        "base-unit STRINGS; ui/usd/pct null when decimals or price unknown. LP locks NOT included. "
+        "Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenLocksInput
+
+    def _run(self, mint: str, status: str | None = None, program: str | None = None, limit: int | None = None) -> str:
+        data = _rest_client().token_locks(mint, status=status, program=program, limit=limit)
+        return json.dumps(data, indent=2)
+
+
+class TokenLocksFeedInput(BaseModel):
+    since: str | None = Field(default=None, description="ISO 8601 — only contracts created after this instant (use pagination.next_since)")
+    before: str | None = Field(default=None, description="ISO 8601 — page back, only contracts created before this instant")
+    mint: str | None = Field(default=None, description="Filter to one mint")
+    sender: str | None = Field(default=None, description="Creator / locker wallet")
+    recipient: str | None = Field(default=None, description="Recipient wallet")
+    program: str | None = Field(default=None, description="'streamflow' | 'jupiter_lock' | 'bonfida_vesting'")
+    kind: str | None = Field(default=None, description="'lock' | 'vesting'")
+    status: str | None = Field(default=None, description="'active' | 'completed' | 'cancelled' | 'closed'")
+    min_usd: float | None = Field(default=None, description="Deposited amount >= USD (needs a known price)")
+    min_pct_of_supply: float | None = Field(default=None, description="Deposited amount >= this % of supply (0-100)")
+    include_estimated: bool | None = Field(default=None, description="Include backfilled Jupiter Lock rows with no on-chain creation time")
+    limit: int | None = Field(default=None, description="1-100, default 50")
+
+
+class MadeOnSolTokenLocksFeed(BaseTool):
+    name: str = "madeonsol_token_locks_feed"
+    description: str = (
+        "Cross-token feed of NEW token lock / vesting contracts (Streamflow, Jupiter Lock, Bonfida), "
+        "newest first — who just locked tokens, of what mint, how much, until when. Same row shape "
+        "as the per-mint locks tool plus a token block (symbol, decimals, price_usd, market_cap_usd). "
+        "Poll forward with since (cursor pagination.next_since); the same rows are pushed live on "
+        "WebSocket channel token:locks. Filters: mint, sender, recipient, program, kind, status, "
+        "min_usd, min_pct_of_supply. Amounts are base-unit STRINGS. LP locks NOT included. "
+        "Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenLocksFeedInput
+
+    def _run(
+        self,
+        since: str | None = None,
+        before: str | None = None,
+        mint: str | None = None,
+        sender: str | None = None,
+        recipient: str | None = None,
+        program: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        min_usd: float | None = None,
+        min_pct_of_supply: float | None = None,
+        include_estimated: bool | None = None,
+        limit: int | None = None,
+    ) -> str:
+        data = _rest_client().token_locks_feed(
+            since=since,
+            before=before,
+            mint=mint,
+            sender=sender,
+            recipient=recipient,
+            program=program,
+            kind=kind,
+            status=status,
+            min_usd=min_usd,
+            min_pct_of_supply=min_pct_of_supply,
+            include_estimated=include_estimated,
+            limit=limit,
+        )
+        return json.dumps(data, indent=2)
+
+
+class TokenUnlocksInput(BaseModel):
+    within: str | None = Field(default=None, description="Window: '1h' | '6h' | '24h' | '3d' | '7d' (default) | '14d' | '30d' | '90d'")
+    mint: str | None = Field(default=None, description="Filter to one mint")
+    program: str | None = Field(default=None, description="'streamflow' | 'jupiter_lock' | 'bonfida_vesting'")
+    kind: str | None = Field(default=None, description="'lock' | 'vesting'")
+    min_usd: float | None = Field(default=None, description="Next-event amount >= USD (needs a known price)")
+    min_pct_of_supply: float | None = Field(default=None, description="Next-event amount >= this % of supply (0-100)")
+    sort: str | None = Field(default=None, description="'soonest' (default) | 'largest_usd' | 'largest_pct'")
+    limit: int | None = Field(default=None, description="1-200, default 50")
+
+
+class MadeOnSolTokenUnlocks(BaseTool):
+    name: str = "madeonsol_token_unlocks"
+    description: str = (
+        "Upcoming token unlock EVENTS across all active lock / vesting contracts inside a window "
+        "(1h-90d) — which locked supply hits the market this week, how much, from whose lock. One "
+        "entry per active contract = its next unlock event (cliff | period | final | tranche) with "
+        "unlock_at, in_seconds, amount (raw / ui / usd / pct of supply) and window_amount_* = that "
+        "contract's total release over the whole window, plus the token block and the lock it "
+        "belongs to. Continuous per-second streams contribute only cliff / final events. Sort by "
+        "soonest, largest_usd or largest_pct. Amounts are base-unit STRINGS. LP locks NOT included. "
+        "Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenUnlocksInput
+
+    def _run(
+        self,
+        within: str | None = None,
+        mint: str | None = None,
+        program: str | None = None,
+        kind: str | None = None,
+        min_usd: float | None = None,
+        min_pct_of_supply: float | None = None,
+        sort: str | None = None,
+        limit: int | None = None,
+    ) -> str:
+        data = _rest_client().token_unlocks(
+            within=within,
+            mint=mint,
+            program=program,
+            kind=kind,
+            min_usd=min_usd,
+            min_pct_of_supply=min_pct_of_supply,
+            sort=sort,
+            limit=limit,
+        )
+        return json.dumps(data, indent=2)
+
+
+class TokenFeeSharesInput(BaseModel):
+    mint: str = Field(description="pump.fun coin mint address (base58)")
+
+
+class MadeOnSolTokenFeeShares(BaseTool):
+    name: str = "madeonsol_token_fee_shares"
+    description: str = (
+        "pump.fun creator-fee sharing on a mint — who the creator fees are redirected to. The "
+        "on-chain SharingConfig: admin, status, is_default (true = 100% to the creator, a real "
+        "answer), redirected_bps (share going to non-admin addresses), social_bps, and each "
+        "shareholder's share_bps, is_admin, is_social_pda (fees earmarked for a platform identity — "
+        "social.platform 2 = X, social.user_id = platform-native numeric id, not the handle) and "
+        "what it has received. Plus a distributions rollup (every distribute_creator_fees payout, "
+        "per-recipient received totals, past recipients), the config change history and "
+        "recent_distributions. Amounts are quote base-unit STRINGS (SOL lamports); ui/usd may be "
+        "null. Event history starts 2026-08-17. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenFeeSharesInput
+
+    def _run(self, mint: str) -> str:
+        data = _rest_client().token_fee_shares(mint)
+        return json.dumps(data, indent=2)
+
+
+class TokenFeeClaimsInput(BaseModel):
+    type: str | None = Field(default=None, description="Comma list of event types: distribution, social_claim, shares_created, shares_updated, shares_reset, creator_transferred, creator_claim (default: all except creator_claim)")
+    mint: str | None = Field(default=None, description="Filter to one mint")
+    recipient: str | None = Field(default=None, description="Payout / claim recipient wallet, or new creator")
+    actor: str | None = Field(default=None, description="Transaction signer")
+    social_platform: int | None = Field(default=None, description="Raw platform id (2 = X)")
+    social_user_id: str | None = Field(default=None, description="Platform-native numeric user id")
+    min_sol: float | None = Field(default=None, description="Amount floor in SOL")
+    since: str | None = Field(default=None, description="ISO 8601 cursor (use pagination.next_since)")
+    before: str | None = Field(default=None, description="ISO 8601 — page back")
+    limit: int | None = Field(default=None, description="1-100, default 50")
+
+
+class MadeOnSolTokenFeeClaims(BaseTool):
+    name: str = "madeonsol_token_fee_claims"
+    description: str = (
+        "pump.fun fee-event feed, newest first: distribution (creator fees paid pro-rata to the "
+        "SharingConfig shareholders, with payouts[] per address), social_claim (fees earmarked for a "
+        "platform identity — platform 2 = X, user_id = platform-native numeric id — claimed to a "
+        "recipient wallet), shares_created / shares_updated / shares_reset (config changes), "
+        "creator_transferred, and creator_claim (plain creator vault claim, per creator, no mint — "
+        "excluded unless requested via type). Filters: type, mint, recipient, actor, "
+        "social_platform, social_user_id, min_sol, since / before. Amounts are quote base-unit "
+        "STRINGS (SOL lamports) + amount / amount_usd. The same rows are pushed live on WebSocket "
+        "channel token:fee_claims. History starts 2026-08-17. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenFeeClaimsInput
+
+    def _run(
+        self,
+        type: str | None = None,
+        mint: str | None = None,
+        recipient: str | None = None,
+        actor: str | None = None,
+        social_platform: int | None = None,
+        social_user_id: str | None = None,
+        min_sol: float | None = None,
+        since: str | None = None,
+        before: str | None = None,
+        limit: int | None = None,
+    ) -> str:
+        data = _rest_client().token_fee_claims(
+            type=type,
+            mint=mint,
+            recipient=recipient,
+            actor=actor,
+            social_platform=social_platform,
+            social_user_id=social_user_id,
+            min_sol=min_sol,
+            since=since,
+            before=before,
+            limit=limit,
+        )
+        return json.dumps(data, indent=2)
+
+
 ALL_TOOLS = [
     MadeOnSolKolFeed(),
     MadeOnSolKolCoordination(),
@@ -458,4 +674,9 @@ ALL_TOOLS = [
     MadeOnSolTokenTrades(),
     MadeOnSolTokenDepth(),
     MadeOnSolTokenHolders(),
+    MadeOnSolTokenLocks(),
+    MadeOnSolTokenLocksFeed(),
+    MadeOnSolTokenUnlocks(),
+    MadeOnSolTokenFeeShares(),
+    MadeOnSolTokenFeeClaims(),
 ]

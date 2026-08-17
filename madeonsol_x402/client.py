@@ -1482,6 +1482,279 @@ class MadeOnSolREST:
         """
         return self._request("GET", f"/tokens/{mint}/holders")
 
+    def token_locks(
+        self,
+        mint: str,
+        *,
+        status: str | None = None,
+        program: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Token locks & vesting on a mint — Streamflow, Jupiter Lock, Bonfida
+        vesting (PRO+). *Did the team lock, how much, until when, and can they
+        pull it?*
+
+        Every on-chain lock / vesting contract on the mint, decoded from the
+        locker programs' account state, each with the schedule (``start_at``,
+        ``cliff_at``, ``end_at``, ``period_seconds``, ``cliff_amount_raw``,
+        ``amount_per_period_raw``), the terms (``cancelable_by_sender``,
+        ``cancelable_by_recipient``, ``transferable``, ``can_topup``) and a
+        live-derived view computed at request time: ``locked_raw`` (still locked
+        now), ``unlocked_raw``, ``withdrawn_raw``, ``claimable_raw``, ``status``
+        (``active`` | ``completed`` | ``cancelled`` | ``closed``) and
+        ``next_unlock`` (``cliff`` | ``period`` | ``final`` | ``tranche``).
+        ``summary`` rolls up ``lock_count`` (exact), ``active_count``,
+        ``by_program`` / ``by_kind``, ``distinct_lockers``, locked / deposited
+        totals (raw + ui + usd + ``_pct_of_supply``), the ``unlocking_7d_*`` /
+        ``unlocking_30d_*`` forward schedule, the nearest ``next_unlock`` and
+        ``active_cancelable_by_sender`` (funds are locked against the
+        *recipient*, not the locker — a cancelable lock is a weaker promise).
+        ``summary.complete`` is ``False`` when the mint holds > 5000 contracts
+        (totals then cover the newest 5000, ``rows_considered``).
+
+        Amounts (``*_raw``) are base-unit digit STRINGS; ``amount`` /
+        ``*_usd`` / ``*_pct_of_supply`` are ``None`` when decimals or price are
+        unknown (see ``token.facts_resolved``). **LP locks are NOT included**
+        — this is token / vesting locks only. Keyed (``msk_``) API only, not on
+        the x402 rail; BASIC gets HTTP 403.
+
+        Args:
+            mint: Token mint address.
+            status: Filter the list — 'active' | 'completed' | 'cancelled' | 'closed'
+                (the summary always covers all rows).
+            program: 'streamflow' | 'jupiter_lock' | 'bonfida_vesting'.
+            limit: 1–500, default 200.
+
+        Route: ``GET /api/v1/tokens/{mint}/locks``.
+        """
+        return self._request(
+            "GET",
+            f"/tokens/{mint}/locks",
+            params={"status": status, "program": program, "limit": limit},
+        )
+
+    def token_locks_feed(
+        self,
+        *,
+        since: str | None = None,
+        before: str | None = None,
+        mint: str | None = None,
+        sender: str | None = None,
+        recipient: str | None = None,
+        program: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        min_usd: float | None = None,
+        min_pct_of_supply: float | None = None,
+        include_estimated: bool | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Cross-token feed of NEW lock / vesting contracts, newest first (PRO+)
+        — who just locked tokens, of what mint, how much, until when.
+
+        Same row shape as :meth:`token_locks` rows plus a per-row ``token``
+        block (``symbol``, ``name``, ``decimals``, ``price_usd``,
+        ``market_cap_usd``). Poll forward with ``since=`` (cursor =
+        ``pagination.next_since``), page back with ``before=`` (cursor =
+        ``pagination.next_before``), or subscribe to the ``token:locks``
+        WebSocket channel (event ``token:lock``, pushed the moment the contract
+        lands on-chain) — the response carries a ``stream`` pointer.
+        ``min_usd`` / ``min_pct_of_supply`` / ``status`` post-filter with a ×4
+        over-fetch. Backfilled Jupiter Lock rows have no on-chain creation time
+        (``created_at_estimated``) and are excluded unless
+        ``include_estimated=True``. LP locks are not included. Keyed API only.
+
+        Args:
+            since: ISO 8601 — only contracts created after this instant.
+            before: ISO 8601 — only contracts created before this instant.
+            mint: Filter to one mint.
+            sender: Creator / locker wallet.
+            recipient: Recipient wallet.
+            program: 'streamflow' | 'jupiter_lock' | 'bonfida_vesting'.
+            kind: 'lock' | 'vesting'.
+            status: 'active' | 'completed' | 'cancelled' | 'closed'.
+            min_usd: Deposited amount >= (needs a known price).
+            min_pct_of_supply: 0–100.
+            include_estimated: Include backfilled Jupiter rows.
+            limit: 1–100, default 50.
+
+        Route: ``GET /api/v1/tokens/locks``.
+        """
+        return self._request(
+            "GET",
+            "/tokens/locks",
+            params={
+                "since": since,
+                "before": before,
+                "mint": mint,
+                "sender": sender,
+                "recipient": recipient,
+                "program": program,
+                "kind": kind,
+                "status": status,
+                "min_usd": min_usd,
+                "min_pct_of_supply": min_pct_of_supply,
+                "include_estimated": (
+                    None if include_estimated is None else ("1" if include_estimated else "0")
+                ),
+                "limit": limit,
+            },
+        )
+
+    def token_unlocks(
+        self,
+        *,
+        within: str | None = None,
+        mint: str | None = None,
+        program: str | None = None,
+        kind: str | None = None,
+        min_usd: float | None = None,
+        min_pct_of_supply: float | None = None,
+        sort: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Upcoming token unlock EVENTS across all active lock / vesting
+        contracts inside a window (PRO+) — which locked supply hits the market
+        this week, how much, from whose lock.
+
+        One entry per active contract = its NEXT unlock event in the window
+        (``event`` = ``cliff`` | ``period`` | ``final`` | ``tranche``,
+        ``unlock_at``, ``in_seconds``, ``amount_raw`` / ``amount`` /
+        ``amount_usd`` / ``amount_pct_of_supply``) plus ``window_amount_*`` =
+        that contract's total release over the whole window, the ``token``
+        block and the ``lock`` it belongs to (subset of a
+        :meth:`token_locks` row). Continuous per-second streams (Streamflow
+        payroll) contribute only their cliff / final events. Response:
+        ``{window: {within, from, to}, unlocks[], pagination: {limit, count,
+        total_in_window, has_more}}``. Amounts are base-unit strings; ui / usd
+        / pct are ``None`` when unknown. LP locks not included. Keyed API only.
+
+        Args:
+            within: '1h' | '6h' | '24h' | '3d' | '7d' (default) | '14d' | '30d' | '90d'.
+            mint: Filter to one mint.
+            program: 'streamflow' | 'jupiter_lock' | 'bonfida_vesting'.
+            kind: 'lock' | 'vesting'.
+            min_usd: Next-event amount >= (needs a known price).
+            min_pct_of_supply: 0–100.
+            sort: 'soonest' (default) | 'largest_usd' | 'largest_pct'.
+            limit: 1–200, default 50.
+
+        Route: ``GET /api/v1/tokens/unlocks``.
+        """
+        return self._request(
+            "GET",
+            "/tokens/unlocks",
+            params={
+                "within": within,
+                "mint": mint,
+                "program": program,
+                "kind": kind,
+                "min_usd": min_usd,
+                "min_pct_of_supply": min_pct_of_supply,
+                "sort": sort,
+                "limit": limit,
+            },
+        )
+
+    def token_fee_shares(self, mint: str) -> dict[str, Any]:
+        """pump.fun creator-fee sharing on a mint — who the creator fees are
+        redirected to (PRO+).
+
+        The on-chain ``SharingConfig`` of a pump.fun coin (pump_fees PDA
+        ``['sharing-config', mint]``): ``config`` with ``admin``, ``status``,
+        ``is_default`` (``True`` = 100% to the creator — a real answer, not a
+        miss), ``redirected_bps`` / ``redirected_pct`` (share going to
+        non-admin addresses), ``social_bps`` / ``social_pct`` and each
+        ``shareholders[]`` entry's ``share_bps``, ``is_admin``,
+        ``is_social_pda`` (fees earmarked for a platform identity such as an X
+        account — ``social.platform`` 2 = X, ``social.user_id`` is the
+        platform-native numeric id, not the handle, plus lifetime claimed) and
+        what that recipient has ``received`` so far. ``config.source`` is
+        ``'stream'`` (our table — only non-default splits are stored) or
+        ``'chain'`` (live PDA read; ``config_error`` set and ``config`` None if
+        every RPC endpoint failed). ``distributions`` rolls up every
+        ``distribute_creator_fees`` payout (count / total / per-recipient
+        received, ``past_recipients`` no longer in the split),
+        ``history`` is the config change log (created / updated / reset /
+        creator transferred, newest first) and ``recent_distributions`` the
+        latest payouts. Amounts are quote base-unit STRINGS (SOL lamports
+        unless a stable-quoted coin); ui / usd may be ``None``. **Event
+        history starts 2026-08-17.** Keyed API only.
+
+        Args:
+            mint: pump.fun coin mint address.
+
+        Route: ``GET /api/v1/tokens/{mint}/fee-shares``.
+        """
+        return self._request("GET", f"/tokens/{mint}/fee-shares")
+
+    def token_fee_claims(
+        self,
+        *,
+        type: str | list[str] | None = None,
+        mint: str | None = None,
+        recipient: str | None = None,
+        actor: str | None = None,
+        social_platform: int | None = None,
+        social_user_id: str | None = None,
+        min_sol: float | None = None,
+        since: str | None = None,
+        before: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """pump.fun fee-event feed, newest first (PRO+): distributions to
+        shareholders, social-handle claims and SharingConfig changes.
+
+        ``events[]`` types: ``distribution`` (creator fees paid pro-rata to the
+        SharingConfig shareholders, with ``payouts[]`` per address),
+        ``social_claim`` (fees earmarked for a platform identity — ``social``
+        with ``platform`` 2 = X, ``user_id`` = platform-native numeric id —
+        claimed to a ``recipient`` wallet), ``shares_created`` /
+        ``shares_updated`` / ``shares_reset``, ``creator_transferred`` and
+        ``creator_claim`` (the plain creator vault claim — per creator, no
+        ``mint``; EXCLUDED unless requested via ``type``). Each event: ``id``,
+        ``type``, ``at``, ``tx_signature``, ``slot``, ``mint`` (``None`` for
+        social / creator claims), ``admin``, ``actor``, ``recipient``,
+        ``amount_raw`` (quote base-unit STRING), ``amount``, ``amount_usd``,
+        ``quote``, ``social``, ``shareholders``, ``payouts``, ``payload``.
+        Default 100%-to-creator configs and zero-amount distributions are not
+        stored. Poll forward with ``since=`` (cursor = ``pagination.next_since``)
+        or subscribe to the ``token:fee_claims`` WebSocket channel (event
+        ``token:fee_claim``) — the response carries a ``stream`` pointer.
+        **History starts 2026-08-17.** Keyed API only.
+
+        Args:
+            type: Event type or list/comma list of types (default: all except
+                'creator_claim').
+            mint: Filter to one mint.
+            recipient: Payout / claim recipient wallet, or new creator.
+            actor: Transaction signer.
+            social_platform: Raw platform id (2 = X).
+            social_user_id: Platform-native numeric user id.
+            min_sol: Amount floor in SOL.
+            since: ISO 8601 cursor (from ``pagination.next_since``).
+            before: ISO 8601 — page back.
+            limit: 1–100, default 50.
+
+        Route: ``GET /api/v1/tokens/fee-claims``.
+        """
+        return self._request(
+            "GET",
+            "/tokens/fee-claims",
+            params={
+                "type": ",".join(type) if isinstance(type, (list, tuple)) else type,
+                "mint": mint,
+                "recipient": recipient,
+                "actor": actor,
+                "social_platform": social_platform,
+                "social_user_id": social_user_id,
+                "min_sol": min_sol,
+                "since": since,
+                "before": before,
+                "limit": limit,
+            },
+        )
+
     def tokens_batch_risk(self, mints: list[str]) -> dict[str, Any]:
         """Bulk token rug-risk/safety scoring — up to 50 mints in one call (PRO+).
 
