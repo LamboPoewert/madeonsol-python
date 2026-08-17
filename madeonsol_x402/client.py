@@ -1430,6 +1430,58 @@ class MadeOnSolREST:
         """
         return self._request("GET", f"/tokens/{mint}/pools")
 
+    def token_holders(self, mint: str) -> dict[str, Any]:
+        """Live holder census + concentration for a token — who holds NOW (PRO+).
+
+        Read live from the ledger at ``confirmed``: every token account of the
+        mint (mint-scoped ``getProgramAccounts``), merged per owner. Returns
+        ``mint``, ``slot``, ``as_of``, a ranked ``holders`` array, ``count``,
+        ``disclosed``, ``excluded``, ``concentration``, ``deployer`` and
+        ``source``.
+
+        Hard truths the payload states rather than hides:
+
+        * ``concentration.holder_count`` is EXACT (distinct non-zero owners
+          minus the excluded pools / curves / burns) via the census. It is
+          ``None`` ONLY when the provider refuses the census for a mega-cap
+          (TRUMP/JUP/BONK class) — then ``source.method`` is
+          ``'getTokenLargestAccounts'``, ``source.census_fallback_reason`` is
+          set and only the top-20 view is served. It is never estimated from
+          trades.
+        * Every disclosed owner carries ``labels`` from MadeOnSol wallet
+          intelligence: ``deployer`` / ``kol`` / ``early_buyer`` / ``buyer`` /
+          ``bundle`` / ``bot`` / ``dump_cluster`` (+ ``kol_name``,
+          ``early_buyer_rank``, ``bot_confidence``, ``historical_win_rate``).
+          An empty ``labels`` list means unknown to us — NOT verified clean.
+        * Liquidity pools, bonding curves, vaults and burn addresses are
+          EXCLUDED from the circulating denominator and NAMED in ``excluded[]``
+          — ``reason`` is ``'pool'`` (+ ``dex``, ``pool_address``),
+          ``'bonding_curve'`` (pump.fun / LaunchLab), ``'burn'`` or
+          ``'program_account'`` (an off-curve owner we could not attribute).
+          ``concentration`` splits them into ``pool_pct`` / ``burned_pct`` /
+          ``program_pct`` (over TOTAL supply); ``top1/10/20/50/100_share`` and
+          the ``deployer/kol/early_buyer/bundle/bot/dump_cluster_pct`` are over
+          circulating (supply minus excluded).
+        * ``amount_raw``, ``supply_raw`` and ``circulating_raw`` are raw u64
+          values returned as STRINGS — never floats. ``amount`` is the
+          decimal-adjusted convenience float.
+        * Disclosure depth is tier-gated (PRO ranks 1–10, ULTRA 1–50,
+          BUSINESS 1–100); the concentration maths is tier-independent.
+
+        Large established tokens take 5–30 s to enumerate upstream: the first
+        call may raise ``httpx.HTTPStatusError`` with HTTP 503 and body
+        ``error_kind='holder_scan_in_progress'`` / ``retry_after_seconds=20``.
+        The scan keeps running and is cached, so retrying after ~20 s is
+        instant. HTTP 404 ``error_kind='not_a_mint'`` = not a mint on-chain;
+        503 ``holder_rpc_unavailable`` (retry 15 s) = fail-closed, never a
+        trade-derived guess. Distinct from :meth:`token_cap_table` (who bought
+        first) — this is who holds now. Not on the keyless x402 rail.
+
+        Args:
+            mint: Token mint address.
+        """
+        return self._request("GET", f"/tokens/{mint}/holders")
+
     def tokens_batch_risk(self, mints: list[str]) -> dict[str, Any]:
         """Bulk token rug-risk/safety scoring — up to 50 mints in one call (PRO+).
 

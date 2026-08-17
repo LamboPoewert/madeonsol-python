@@ -409,6 +409,32 @@ class MadeOnSolTokenDepth(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class TokenHoldersInput(BaseModel):
+    mint: str = Field(description="Token mint address (base58)")
+
+
+class MadeOnSolTokenHolders(BaseTool):
+    name: str = "MadeOnSol Token Holders"
+    description: str = (
+        "Live holder census + concentration for a token — who holds NOW (not who bought first). "
+        "Read live from the ledger: every token account of the mint merged per owner, so "
+        "concentration.holder_count is EXACT (null only when the provider refuses the census for a "
+        "mega-cap — then a top-20 fallback with source.census_fallback_reason set; never estimated "
+        "from trades). Each disclosed owner is labelled from MadeOnSol data (deployer / kol / "
+        "early_buyer / bundle / bot / dump_cluster; empty labels = unknown, not clean). Liquidity "
+        "pools, bonding curves and burns are EXCLUDED from the circulating denominator and NAMED in "
+        "excluded[] (pool + dex + pool_address | bonding_curve | burn | program_account). Amounts "
+        "are raw u64 STRINGS. Tier-gated disclosure: PRO 10 / ULTRA 50 / BUSINESS 100. Large "
+        "established tokens may first return HTTP 503 holder_scan_in_progress — the scan continues "
+        "and is cached, retry after ~20 s. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenHoldersInput
+
+    def _run(self, mint: str) -> str:
+        data = _rest_client().token_holders(mint)
+        return json.dumps(data, indent=2)
+
+
 ALL_TOOLS = [
     MadeOnSolKolFeed(),
     MadeOnSolKolCoordination(),
@@ -430,4 +456,5 @@ ALL_TOOLS = [
     MadeOnSolWalletBatchClassify(),
     MadeOnSolTokenTrades(),
     MadeOnSolTokenDepth(),
+    MadeOnSolTokenHolders(),
 ]
