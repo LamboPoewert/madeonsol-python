@@ -340,7 +340,7 @@ CRUD: `first_touch_subscriptions_list()`, `first_touch_subscriptions_get(id)`, `
 
 ### Price Alerts *(new in 1.9)*
 
-CRUD for token dip/recovery price alerts. Fires via WebSocket (`price:alerts` channel) and/or HMAC-signed webhook when a token's market cap crosses your threshold. PRO=5 rules, ULTRA=25.
+CRUD for token dip/recovery price alerts. Fires via WebSocket (`price_alert:events` channel) and/or HMAC-signed webhook when a token's market cap crosses your threshold. PRO=5 rules, ULTRA=25.
 
 ```python
 res = client.rest.price_alerts_create(
