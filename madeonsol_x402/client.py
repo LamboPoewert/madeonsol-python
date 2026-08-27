@@ -1109,13 +1109,25 @@ class MadeOnSolREST:
 
     # ── Streaming ──
 
-    def get_stream_token(self) -> dict[str, Any]:
-        """Generate a 24h WebSocket streaming token."""
-        return self._request("POST", "/stream/token")
+    def get_stream_token(self, *, rotate: bool = False) -> dict[str, Any]:
+        """Issue your WebSocket streaming token.
+
+        Stream tokens never expire (since 2026-08-27): every call returns the
+        same token until your subscription lapses or you pass ``rotate=True``,
+        which replaces it (the previous value keeps working for 60 s).
+        ``expires_at`` / ``next_refresh_at`` are always ``None`` — the server
+        never rotates on its own and never sends ``token_refresh`` unless you
+        rotated. The response also carries ``rotated`` (bool) and ``lifetime``
+        (str). A ``4001`` close means "mint again" (lapsed or rotated), never a
+        timer. Authenticate the handshake with ``Authorization: Bearer <token>``
+        (``?token=`` still works, masked in logs).
+        """
+        return self._request("POST", "/stream/token", {"rotate": True} if rotate else None)
 
     def stream(self, *, auto_reconnect: bool = True, max_backoff: float = 30.0) -> "MadeOnSolStream":
-        """Open a managed real-time WebSocket stream — auto-reconnect, 24h-token
-        refresh, and typed callbacks. Requires the optional ``websockets`` extra::
+        """Open a managed real-time WebSocket stream — auto-reconnect, token fetch
+        (the token does not expire; ``get_stream_token()`` is called on every
+        (re)connect), and typed callbacks. Requires the optional ``websockets`` extra::
 
             pip install "madeonsol-x402[stream]"
 

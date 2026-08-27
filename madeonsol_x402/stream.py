@@ -1,9 +1,10 @@
 """Real-time WebSocket streaming client.
 
 Wraps the connect -> token -> subscribe -> event loop with auto-reconnect,
-24h-token auto-refresh, heartbeat liveness (via websockets ping/pong), and
-typed callbacks, so consumers never hand-roll connection management. Obtain one
-via ``client.stream()``.
+heartbeat liveness (via websockets ping/pong), and typed callbacks, so consumers
+never hand-roll connection management. Obtain one via ``client.stream()``.
+Stream tokens do not expire: ``get_token()`` is called on every (re)connect and
+returns the same value until the subscription lapses or you explicitly rotate it.
 
 Requires the optional ``websockets`` dependency:
     pip install "madeonsol-x402[stream]"

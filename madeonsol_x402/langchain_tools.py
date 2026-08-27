@@ -143,7 +143,7 @@ class StreamTokenInput(BaseModel):
 
 class MadeOnSolStreamToken(BaseTool):
     name: str = "madeonsol_stream_token"
-    description: str = "Get a 24h WebSocket streaming token for real-time event streaming from MadeOnSol. Requires MADEONSOL_API_KEY."
+    description: str = "Get your WebSocket streaming token for real-time event streaming from MadeOnSol (never expires; same token on every call). Requires MADEONSOL_API_KEY."
     args_schema: type[BaseModel] = StreamTokenInput
 
     def _run(self) -> str:
