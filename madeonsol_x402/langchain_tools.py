@@ -652,6 +652,85 @@ class MadeOnSolTokenFeeClaims(BaseTool):
         return json.dumps(data, indent=2)
 
 
+class TokenSurgesInput(BaseModel):
+    kind: str | None = Field(default=None, description="'surge' (token < 30 min old running vs its launch MC) | 'revival' (dormant >= 24 h, then confirmed buys)")
+    tier: str | None = Field(default=None, description="Surge tier: 'early' | 'strong' | 'breakout' (surge only — 400 with kind='revival')")
+    mint: str | None = Field(default=None, description="Filter to one mint")
+    since: str | None = Field(default=None, description="ISO 8601 — only fires after this instant (use pagination.next_since)")
+    before: str | None = Field(default=None, description="ISO 8601 — page back (use pagination.next_before)")
+    min_mc_usd: float | None = Field(default=None, description="Market cap at fire time >= USD")
+    max_mc_usd: float | None = Field(default=None, description="Market cap at fire time <= USD")
+    min_buys: int | None = Field(default=None, description="Tape buys at fire time >=")
+    launchpad: str | None = Field(default=None, description="Venue at birth: 'pumpfun' | 'launchlab' | 'bags' | ...")
+    deployer_tier: str | None = Field(default=None, description="'elite' | 'good' | 'moderate' | 'rising' | 'cold' | 'unranked'")
+    exclude_flags: str | None = Field(default=None, description="Comma list of risk flags — rows carrying ANY are dropped (bundled_launch, few_buyers, wash_pattern, thin_liquidity, cold_deployer, sniper_heavy, early_buyers_exiting, sell_pressure, no_tape_trades, no_prior_price, mint_authority_active, transfer_fee)")
+    only_clean: bool | None = Field(default=None, description="Only rows with no risk flags at all")
+    stats: bool | None = Field(default=None, description="Include per-(kind, tier) hit-rates over `days`")
+    days: int | None = Field(default=None, description="Stats window 1-30, default 7")
+    limit: int | None = Field(default=None, description="1-200, default 50")
+
+
+class MadeOnSolTokenSurges(BaseTool):
+    name: str = "madeonsol_tokens_surges"
+    description: str = (
+        "Token surges & revivals — token momentum fires, newest first. kind=surge: a token < 30 min "
+        "old whose market cap runs hard vs its LAUNCH MC — tier early (<=10 min, >=$12k, >=3x launch), "
+        "strong (<=30 min, >=$30k, >=6x launch and >=2x the 3-min low), breakout (<=2 min, >=$45k, "
+        ">=8x); each tier fires once per mint and must be SUSTAINED >=10 s (a one-tick bundle mark is a "
+        "spike, not a surge). kind=revival: no 1-minute trade candle for >=24 h, then confirmed by the "
+        "tape (>=5 buys, >=$500 buy volume, MC >=1.5x the pre-dormancy close) — never by a price mark; "
+        "tier is null. Both need liquidity >=$1.5k and >=2% of MC, and the MC gained must be paid for by "
+        "buy volume. Each row: tape (buys/sells/volume; unique_buyers null outside trade coverage), kol "
+        "buyers, early_buyers (bundled / sold / sniper wallets), deployer reputation, risk_flags[] "
+        "(bundled_launch, few_buyers, wash_pattern, thin_liquidity, cold_deployer, sniper_heavy, "
+        "early_buyers_exiting, sell_pressure, no_tape_trades, no_prior_price, mint_authority_active, "
+        "transfer_fee — empty = no flag raised, not verified clean), and outcome (+1 h MC / peak / low "
+        "multiples) once >=65 min old. stats=true adds per-(kind, tier) hit-rates (up_1h_pct, "
+        "median_peak_multiple, doubled_1h_pct) — out-of-sample. Filters kind, tier, mint, launchpad, "
+        "deployer_tier, min_mc_usd/max_mc_usd, min_buys, exclude_flags, only_clean; cursors since/before. "
+        "The same rows are pushed live on WebSocket channel token:surges (events token:surge / "
+        "token:revival). Retention 60 days. Requires MADEONSOL_API_KEY (PRO/ULTRA)."
+    )
+    args_schema: type[BaseModel] = TokenSurgesInput
+
+    def _run(
+        self,
+        kind: str | None = None,
+        tier: str | None = None,
+        mint: str | None = None,
+        since: str | None = None,
+        before: str | None = None,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
+        min_buys: int | None = None,
+        launchpad: str | None = None,
+        deployer_tier: str | None = None,
+        exclude_flags: str | None = None,
+        only_clean: bool | None = None,
+        stats: bool | None = None,
+        days: int | None = None,
+        limit: int | None = None,
+    ) -> str:
+        data = _rest_client().tokens_surges(
+            kind=kind,
+            tier=tier,
+            mint=mint,
+            since=since,
+            before=before,
+            min_mc_usd=min_mc_usd,
+            max_mc_usd=max_mc_usd,
+            min_buys=min_buys,
+            launchpad=launchpad,
+            deployer_tier=deployer_tier,
+            exclude_flags=exclude_flags,
+            only_clean=only_clean,
+            stats=stats,
+            days=days,
+            limit=limit,
+        )
+        return json.dumps(data, indent=2)
+
+
 ALL_TOOLS = [
     MadeOnSolKolFeed(),
     MadeOnSolKolCoordination(),
@@ -679,4 +758,5 @@ ALL_TOOLS = [
     MadeOnSolTokenUnlocks(),
     MadeOnSolTokenFeeShares(),
     MadeOnSolTokenFeeClaims(),
+    MadeOnSolTokenSurges(),
 ]

@@ -30,6 +30,7 @@ CHANNELS = (
     "token:graduations",
     "token:locks",
     "token:fee_claims",
+    "token:surges",
 )
 
 # Event names delivered on those channels.
@@ -47,6 +48,8 @@ EVENT_NAMES = (
     "token:graduation",
     "token:lock",
     "token:fee_claim",
+    "token:surge",
+    "token:revival",
 )
 
 Handler = Callable[..., Any | Awaitable[Any]]

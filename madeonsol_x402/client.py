@@ -1767,6 +1767,113 @@ class MadeOnSolREST:
             },
         )
 
+    def tokens_surges(
+        self,
+        *,
+        kind: str | None = None,
+        tier: str | None = None,
+        mint: str | None = None,
+        since: str | None = None,
+        before: str | None = None,
+        min_mc_usd: float | None = None,
+        max_mc_usd: float | None = None,
+        min_buys: int | None = None,
+        launchpad: str | None = None,
+        deployer_tier: str | None = None,
+        exclude_flags: str | list[str] | None = None,
+        only_clean: bool | None = None,
+        stats: bool | None = None,
+        days: int | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Token surges & revivals — token momentum fires, newest first (PRO+).
+
+        Two kinds share one row shape. ``surge``: a token < 30 min old whose
+        market cap runs hard against its LAUNCH MC, in three tiers that each
+        fire at most once per mint (tiers are independent — a token can go
+        straight to breakout): ``early`` (<=10 min, >=$12k, >=3x launch),
+        ``strong`` (<=30 min, >=$30k, >=6x launch AND >=2x the lowest sample of
+        the last 3 min — it is climbing now), ``breakout`` (<=2 min, >=$45k,
+        >=8x). A tier must be SUSTAINED on the current tick and on a sample
+        >=10 s older, and nothing fires before 20 s of age — a one-tick mark
+        (same-slot bundle, routed dust) is a spike, not a surge. ``revival``:
+        a token with no 1-minute trade candle for >=24 h that starts trading
+        again, confirmed ONLY by the tape (>=5 buys, >=$500 buy volume, MC
+        >=1.5x the pre-dormancy close, or >=20 buys / >=$5k regardless), never
+        by the price mark; ``tier`` is ``None``. Hard gates on both: liquidity
+        >=$1.5k and >=2% of MC when known, MC <=$100B, and the MC gained must be
+        PAID FOR by buy volume on the tape (a price mark in a spoof pool moves
+        MC on ~$0).
+
+        Every row carries the burst ``tape`` (buys / sells / volume;
+        ``unique_buyers`` only where the mint is in trade coverage —
+        ``wallet_data_available`` False otherwise, never an inferred zero;
+        ``source`` says ``candles`` vs ``wallet_trades``, ``available`` False =
+        no tape yet), ``kol`` (tracked-KOL buyers + names), ``early_buyers``
+        (first-20 cohort: bundled, sold, sniper wallets), ``deployer``
+        reputation and ``risk_flags`` — the honest half: ``bundled_launch``,
+        ``few_buyers``, ``wash_pattern``, ``thin_liquidity``, ``cold_deployer``,
+        ``sniper_heavy``, ``early_buyers_exiting``, ``sell_pressure``,
+        ``no_tape_trades``, ``no_prior_price``, ``mint_authority_active``,
+        ``transfer_fee`` (thresholds echoed in ``definitions.risk_flags``; an
+        empty list is "no flag raised", not "verified clean"). Rows >=65 min
+        old carry the +1 h ``outcome`` (``mc_1h_multiple``,
+        ``peak_1h_multiple``; ``priced_after_1h`` False = the token stopped
+        being priced, not zero). ``stats=True`` adds per-(kind, tier)
+        hit-rates over ``days`` (``up_1h_pct``, ``median_peak_multiple``,
+        ``doubled_1h_pct``) — out-of-sample by construction, the fire is
+        recorded before the outcome exists. Poll forward with ``since=``
+        (cursor ``pagination.next_since``), page back with ``before=``, or
+        subscribe to the ``token:surges`` WebSocket channel (events
+        ``token:surge`` / ``token:revival``, same object minus ``outcome``) —
+        the response carries a ``stream`` pointer and echoes the live
+        thresholds in ``definitions``. Retention 60 days. Keyed (``msk_``) API
+        only, not on the x402 rail; BASIC gets HTTP 403.
+
+        Args:
+            kind: 'surge' | 'revival'.
+            tier: 'early' | 'strong' | 'breakout' (surge only — 400 with kind='revival').
+            mint: Filter to one mint.
+            since: ISO 8601 — only fires after this instant (from ``pagination.next_since``).
+            before: ISO 8601 — page back (from ``pagination.next_before``).
+            min_mc_usd: Market cap at fire time >=.
+            max_mc_usd: Market cap at fire time <=.
+            min_buys: Tape buys at fire time >=.
+            launchpad: Venue at birth, e.g. 'pumpfun' | 'launchlab' | 'bags'.
+            deployer_tier: 'elite' | 'good' | 'moderate' | 'rising' | 'cold' | 'unranked'.
+            exclude_flags: Risk flag or list/comma list — rows carrying ANY are
+                dropped (unknown flag → 400 with ``known_flags``).
+            only_clean: Only rows with no risk flags at all.
+            stats: Include per-(kind, tier) hit-rates over ``days``.
+            days: Stats window, 1–30 (default 7).
+            limit: 1–200, default 50.
+
+        Route: ``GET /api/v1/tokens/surges``.
+        """
+        return self._request(
+            "GET",
+            "/tokens/surges",
+            params={
+                "kind": kind,
+                "tier": tier,
+                "mint": mint,
+                "since": since,
+                "before": before,
+                "min_mc_usd": min_mc_usd,
+                "max_mc_usd": max_mc_usd,
+                "min_buys": min_buys,
+                "launchpad": launchpad,
+                "deployer_tier": deployer_tier,
+                "exclude_flags": (
+                    ",".join(exclude_flags) if isinstance(exclude_flags, (list, tuple)) else exclude_flags
+                ),
+                "only_clean": None if only_clean is None else ("1" if only_clean else "0"),
+                "stats": None if stats is None else ("1" if stats else "0"),
+                "days": days,
+                "limit": limit,
+            },
+        )
+
     def tokens_batch_risk(self, mints: list[str]) -> dict[str, Any]:
         """Bulk token rug-risk/safety scoring — up to 50 mints in one call (PRO+).
 
