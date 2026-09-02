@@ -959,6 +959,44 @@ class MadeOnSolREST:
             "GET", f"/deployer-hunter/{wallet}/history", params={"limit": limit}
         )
 
+    def deployer_as_of(self, wallet: str, *, date: str | None = None) -> dict[str, Any]:
+        """A deployer's reputation exactly as it stood on ``date`` — the latest
+        write-on-change snapshot at or before it, so a backtest sees only what
+        was knowable then.
+
+        ``snapshot.snapshot_date`` can predate ``date`` (snapshots are
+        write-on-change); ``snapshot.carried`` is ``True`` when the state was
+        recorded earlier and had not changed by ``date``. No snapshot at or
+        before ``date`` returns ``as_of: False, snapshot: None`` — nothing is
+        ever synthesized.
+
+        Args:
+            wallet: Deployer wallet address.
+            date: YYYY-MM-DD (UTC). Default: today. Must be >= 2026-04-07 and
+                not in the future.
+        """
+        params = {"date": date} if date is not None else None
+        return self._request(
+            "GET", f"/deployer-hunter/{wallet}/as-of", params=params
+        )
+
+    def deployer_rewards(self, wallet: str) -> dict[str, Any]:
+        """pump.fun creator-fee rewards for a wallet, answered two ways that
+        are never merged: ``collected`` (what actually reached the wallet —
+        direct vault claims kept 90 days, social-handle claims, shareholder
+        payouts on any token) and ``attributed`` (every payout on the tokens it
+        deployed, split ``to_self``/``to_others`` + ``redirected_pct``).
+
+        Every money field is ``{sol, usdc, usd}``; ``usd`` is ``None`` (never a
+        silent 0) when a SOL amount exists and no SOL price was available.
+        Works for non-deployers too (``is_deployer: False``, ``attributed``
+        empty).
+
+        Args:
+            wallet: Wallet address.
+        """
+        return self._request("GET", f"/deployer-hunter/{wallet}/rewards")
+
     # ── Deployer hunter: reputation, leaderboard, outcomes ──
     #
     # "Bonding" is the pump.fun graduation event. ``bonding_rate`` is lifetime,
